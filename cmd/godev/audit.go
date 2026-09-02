@@ -22,6 +22,19 @@ func runAudit(root string, args []string) error {
 	rule := fs.String("rule", "", "show findings for one rule only, by id or name")
 	all := fs.Bool("all", false, "print notices as well as refusals")
 	quiet := fs.Bool("quiet", false, "print nothing, just set the exit status")
+	// -max is the ratchet, and it exists because the site repo needs a gate it
+	// can turn on today.
+	//
+	// The corpus has 227 refusals. A required check that demands zero is red on
+	// the first pull request and every pull request after it, including the ones
+	// fixing the refusals, and a check that is always red is a check somebody
+	// turns off. So the site's CI pins the number it has and fails on 228.
+	//
+	// It only ever goes down. A pull request that fixes ten refusals lowers the
+	// pin by ten in the same diff, which is a reviewable claim about what the
+	// change did, and the day it reaches zero the flag comes off and the gate is
+	// the plain one. Without a pin the default is unchanged: any refusal fails.
+	max := fs.Int("max", -1, "allow up to this many refusals before failing, for a corpus being worked down")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -59,10 +72,36 @@ func runAudit(root string, args []string) error {
 		}
 	}
 
-	if n := len(result.Refusals()); n > 0 {
-		return fmt.Errorf("%d findings refuse the translation", n)
+	slack, err := auditStatus(len(result.Refusals()), *max)
+	if slack != "" {
+		fmt.Fprintln(os.Stderr, slack)
 	}
-	return nil
+	return err
+}
+
+// auditStatus turns a refusal count and a pin into an exit status and, when the
+// pin has room left in it, a line saying how much.
+//
+// Split out from runAudit because it is the part with the off by one in it. The
+// pin is the number the checkout is allowed to have, so equal passes and one
+// more fails, and that is easier to assert than to read.
+func auditStatus(refusals, max int) (string, error) {
+	switch {
+	case max < 0:
+		if refusals > 0 {
+			return "", fmt.Errorf("%d findings refuse the translation", refusals)
+		}
+	case refusals > max:
+		return "", fmt.Errorf("%d findings refuse the translation, which is %d more than the %d this checkout is pinned to",
+			refusals, refusals-max, max)
+	case refusals < max:
+		// Worth saying out loud. The pin is a claim about the corpus, and one
+		// that has drifted low is a claim nobody is maintaining, so the run
+		// says by how much rather than passing quietly.
+		return fmt.Sprintf("%d refusals against a pin of %d, so -max can come down by %d",
+			refusals, max, max-refusals), nil
+	}
+	return "", nil
 }
 
 func printRule(result quality.Report, want string) {
