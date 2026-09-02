@@ -670,9 +670,13 @@ var ruleCommentary = Rule{
 // translations.json at the root of the site repo, and this rule compares that
 // against the English on disk. A file with no record at all is reported once
 // and not refused, because the corpus predates the manifest and reporting 654
-// refusals on the first run helps nobody. That is what the whole corpus looks
-// like today, and the number goes down by one every time a file is translated
-// through this tool.
+// refusals on the first run helps nobody.
+//
+// godev backfill has since read the 557 older translations out of git history,
+// so the rule now says something. 129 findings: 97 with no record, which are
+// the files whose Vietnamese is byte for byte the English and were left out of
+// the backfill on purpose, and 32 that refuse. Those 32 are exactly the files
+// the sync moved, which is the answer the rule was built to give.
 var ruleStale = Rule{
 	ID: "L13", Name: "stale", Severity: Refuse,
 	Check: func(in Input) []Finding {
