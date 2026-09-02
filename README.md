@@ -131,7 +131,7 @@ The checkout defaults to `$GODEV_VN`, then to `../godev-vn` beside this repo. Ex
 ```
 
 ```
-./godev translate -plan -gap              # what a run over the sync gap would ask
+./godev translate -plan -gap              # what a run over the sync gap would ask, queueing nothing
 ./godev translate blog/go1.27.md          # one page, end to end
 ./godev translate -group ref -workers 4   # one section of the site
 ./godev translate -gap                    # the files with no translation or a stale one

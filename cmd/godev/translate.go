@@ -32,7 +32,7 @@ flags:
   -group NAME      one section of the site: blog, doc, ref, tour, talks, wiki
   -workers N       calls in flight, default the fleet's own lane count
   -budget N        bytes per piece, default 6000
-  -plan            say what would be asked and stop
+  -plan            say what would be asked, queue nothing, and stop
   -assemble        put finished pages together and stop, asking nothing
   -force           ask again for pieces that are already done
   -root PATH       queue directory, default the one godev queue uses
@@ -52,7 +52,7 @@ func runTranslate(ctx context.Context, checkout string, args []string) error {
 	group := fs.String("group", "", "one section of the site")
 	workers := fs.Int("workers", 0, "calls in flight, default the fleet's lane count")
 	budget := fs.Int("budget", 0, "bytes per piece")
-	planOnly := fs.Bool("plan", false, "say what would be asked and stop")
+	planOnly := fs.Bool("plan", false, "say what would be asked, queue nothing, and stop")
 	assembleOnly := fs.Bool("assemble", false, "put finished pages together and stop")
 	force := fs.Bool("force", false, "ask again for pieces that are already done")
 	root := fs.String("root", queueRoot(checkout), "queue directory")
@@ -95,21 +95,32 @@ func runTranslate(ctx context.Context, checkout string, args []string) error {
 		return report(engine.Assemble(pairs))
 	}
 
-	plan, err := engine.Plan(pairs)
+	plan, err := engine.Plan(pairs, *planOnly)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "%d files, %d pieces to ask about, %d copied through, %d added to the queue\n",
-		plan.Files, plan.Asked, plan.Copied, plan.Added)
+	verb := "added to the queue"
+	if *planOnly {
+		verb = "that would be added to the queue"
+	}
+	fmt.Fprintf(os.Stderr, "%d files, %d pieces to ask about, %d copied through, %d %s\n",
+		plan.Files, plan.Asked, plan.Copied, plan.Added, verb)
+	if *planOnly {
+		// -force is left alone here for the same reason the plan inserts
+		// nothing. Retry moves finished jobs back to pending, and a run that
+		// says it will stop and then rearranges the queue is a run that costs
+		// fleet time the next time somebody starts one.
+		if *force {
+			fmt.Fprintln(os.Stderr, "-force does nothing under -plan, which changes nothing")
+		}
+		return nil
+	}
 	if *force {
 		moved, err := q.Retry(queue.StageTranslate, queue.Done, queue.Failed, queue.Dead)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "asking again for %d pieces that were already finished\n", moved)
-	}
-	if *planOnly {
-		return nil
 	}
 
 	// The pool is built after the plan, because planning is free and finding out

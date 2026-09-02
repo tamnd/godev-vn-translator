@@ -202,6 +202,20 @@ func (q *Queue) path(stage Stage, state State, id string) string {
 // it as an error.
 var ErrEmpty = errors.New("no pending jobs")
 
+// Has says whether the queue already knows about a job, in any state.
+//
+// It is what Add checks before inserting, exported so a caller that wants to
+// count what an insert would do can ask without doing it. A dry run that has to
+// call Add to find out how many jobs are new is not a dry run.
+func (q *Queue) Has(stage Stage, id string) bool {
+	for _, state := range States {
+		if _, err := os.Stat(q.path(stage, state, id)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // Add puts a job in pending unless it is already somewhere.
 //
 // Already somewhere includes done, which is what makes a rerun cheap: the
@@ -210,10 +224,8 @@ func (q *Queue) Add(job Job) (bool, error) {
 	if job.ID == "" || job.Stage == "" {
 		return false, fmt.Errorf("job needs an id and a stage")
 	}
-	for _, state := range States {
-		if _, err := os.Stat(q.path(job.Stage, state, job.ID)); err == nil {
-			return false, nil
-		}
+	if q.Has(job.Stage, job.ID) {
+		return false, nil
 	}
 	if job.Created.IsZero() {
 		job.Created = q.now()
