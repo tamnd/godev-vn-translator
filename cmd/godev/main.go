@@ -26,6 +26,7 @@ commands:
   audit      run the quality gates over the checkout and report
   routes     list the model routes in the order they would be tried
   doctor     probe every route and say which ones are answering
+  queue      look at the work list on disk, reap it, retry it, drain it
 
 The checkout defaults to $GODEV_VN, then to ../godev-vn beside this repo.
 `
@@ -52,16 +53,21 @@ func main() {
 	cmd, rest := args[0], args[1:]
 	var runErr error
 	switch cmd {
-	case "audit":
-		// Only the commands that read the site need the site. Asking for a
-		// checkout before printing a route table would be a strange thing to
-		// fail on.
+	case "audit", "queue":
+		// Only the commands that work against the site need the site. Asking
+		// for a checkout before printing a route table would be a strange thing
+		// to fail on. The queue needs it because a work list is state about one
+		// checkout and two checkouts must not share one.
 		dir, err := checkout(*root)
 		if err != nil {
 			log("%v", err)
 			os.Exit(1)
 		}
-		runErr = runAudit(dir, rest)
+		if cmd == "audit" {
+			runErr = runAudit(dir, rest)
+		} else {
+			runErr = runQueue(dir, rest)
+		}
 	case "routes":
 		runErr = runRoutes(rest)
 	case "doctor":
