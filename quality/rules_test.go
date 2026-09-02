@@ -241,6 +241,39 @@ func TestTerminology(t *testing.T) {
 	}
 }
 
+// TestTerminologyLongerTerm is the release case. "release" is translated and
+// "release candidate" is not, so a page about release candidates says the word
+// "release" in English and is correct.
+func TestTerminologyLongerTerm(t *testing.T) {
+	g := glossary.Parse("| release | bản phát hành | |\n" +
+		"| release candidate | release candidate | |\n" +
+		"| pre-release | pre-release | |\n")
+	run := func(en, vi string) []Finding {
+		return ruleTerminology.Check(Input{
+			Pair: content.Pair{Rel: "t.md", Kind: content.KindMarkdown},
+			EN:   en, VI: vi,
+			ENDoc: content.Parse(content.KindMarkdown, en), VIDoc: content.Parse(content.KindMarkdown, vi),
+			Glossary: g,
+		})
+	}
+	en := "test the beta and release candidate before the release ships"
+
+	if got := run(en, "kiểm thử bản beta và release candidate"); len(got) != 0 {
+		t.Errorf("a term inside a longer term that keeps its English must be silent, got %d: %v", len(got), got)
+	}
+	if got := run(en, "kiểm thử phiên bản pre-release"); len(got) != 0 {
+		t.Errorf("pre-release must be silent, got %d: %v", len(got), got)
+	}
+	// One phrase kept and one bare word left standing is still worth a notice,
+	// which is why the occurrences are counted one at a time.
+	if got := run(en, "kiểm thử release candidate trước khi release được phát hành"); len(got) != 1 {
+		t.Errorf("a bare term next to a kept phrase must be reported, got %d: %v", len(got), got)
+	}
+	if got := run(en, "kiểm thử bản phát hành"); len(got) != 0 {
+		t.Errorf("a translated term must be silent, got %d: %v", len(got), got)
+	}
+}
+
 func TestLanguage(t *testing.T) {
 	ascii := strings.Repeat("this is english prose that was never translated. ", 10)
 	count(t, ruleLanguage, ascii, ascii, 1)

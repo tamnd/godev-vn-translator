@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/tamnd/godev-vn-translator/content"
+	"github.com/tamnd/godev-vn-translator/glossary"
 )
 
 // L01. A translatable English file with no Vietnamese counterpart.
@@ -594,6 +595,9 @@ var ruleFrontMatter = Rule{
 // glossary keeps `commit`, `contributor`, `repository`, `workspace`,
 // `generics` and `dependency` untranslated on purpose, and reporting those
 // would be reporting every correct page on the site.
+//
+// So is a term that only ever appears inside a longer term the glossary keeps.
+// See leftInEnglish.
 var ruleTerminology = Rule{
 	ID: "L10", Name: "terminology", Severity: Notice,
 	Check: func(in Input) []Finding {
@@ -606,7 +610,7 @@ var ruleTerminology = Rule{
 			if t.KeepsEnglish() {
 				continue
 			}
-			if !containsWord(answer, t.EN) {
+			if !leftInEnglish(answer, t.EN, in.Glossary) {
 				continue
 			}
 			out = append(out, Finding{Msg: fmt.Sprintf(
@@ -614,6 +618,51 @@ var ruleTerminology = Rule{
 		}
 		return out
 	},
+}
+
+// leftInEnglish reports whether the answer says the term in English somewhere
+// the glossary does not already account for.
+//
+// A term can sit inside a longer one that keeps its English, and then the page
+// saying it in English is the page being right. The glossary writes "release"
+// as "bản phát hành" and writes "release candidate" as "release candidate",
+// which is what Vietnamese Go writing calls it, so a page about testing the
+// release candidates contains the word "release" and has got nothing wrong.
+//
+// That case was not a rounding error. "release" was 48 of the 85 L10 notices on
+// the corpus and nearly every one of them was this phrase, or "pre-release",
+// which is semver vocabulary and is also kept.
+//
+// The occurrences are checked one at a time rather than the file as a whole,
+// because a page that says "release candidate" once and leaves a bare "release"
+// standing elsewhere is still worth a notice.
+func leftInEnglish(answer, term string, g *glossary.Glossary) bool {
+	spans := wordSpans(answer, term)
+	if len(spans) == 0 {
+		return false
+	}
+	var kept [][2]int
+	for _, u := range g.Terms {
+		if !u.KeepsEnglish() || len(u.EN) <= len(term) {
+			continue
+		}
+		kept = append(kept, wordSpans(answer, u.EN)...)
+	}
+	for _, s := range spans {
+		if !within(s, kept) {
+			return true
+		}
+	}
+	return false
+}
+
+func within(s [2]int, spans [][2]int) bool {
+	for _, c := range spans {
+		if c[0] <= s[0] && s[1] <= c[1] {
+			return true
+		}
+	}
+	return false
 }
 
 // L11. The Vietnamese is not Vietnamese.
