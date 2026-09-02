@@ -256,6 +256,42 @@ func TestStale(t *testing.T) {
 	}
 }
 
+func TestEscaping(t *testing.T) {
+	// The defect as it arrived: a page came back with every list marker,
+	// heading and link target behind a backslash.
+	en := "## Title\n\n- one\n- two\n\nSee [the spec](/ref/spec).\n"
+	vi := "\\#\\# Tiêu đề\n\n\\- một\n\\- hai\n\nXem [đặc tả]\\(/ref/spec\\).\n"
+	// One finding per distinct mark, not per occurrence: \# and \- twice each
+	// plus \( and \) once each is four, and a page escaped this way has
+	// hundreds of them.
+	got := count(t, ruleEscaping, en, vi, 4)
+	for _, f := range got {
+		if f.Line == 0 {
+			t.Errorf("an escape is on a line, so the finding must name one: %s", f.Msg)
+		}
+	}
+
+	// A clean translation of the same page says nothing.
+	count(t, ruleEscaping, en, "## Tiêu đề\n\n- một\n- hai\n\nXem [đặc tả](/ref/spec).\n", 0)
+
+	// The English has 166 legitimate escapes across 52 files, so the count is
+	// compared with the English and not with zero. doc/go_spec.html writes
+	// \[ and \] in its grammar and its translation must be able to as well.
+	esc := "The form is a\\[i\\] and not a\\(i\\).\n"
+	count(t, ruleEscaping, esc, "Dạng là a\\[i\\] chứ không phải a\\(i\\).\n", 0)
+
+	// One more than the English is still one too many.
+	count(t, ruleEscaping, esc, "Dạng là a\\[i\\] chứ không phải a\\(i\\) hay a\\[j\\].\n", 2)
+
+	// Inside a fence a backslash is the code and not the markup, so a code
+	// block the translation is allowed to change, as blog/unique.md changes
+	// its Go comments, does not get counted either way.
+	count(t, ruleEscaping,
+		"Ví dụ:\n\n```\nfmt.Println(\"a\")\n```\n",
+		"Ví dụ:\n\n```\nfmt.Println(\"a\\[i\\]\")\n```\n", 0)
+	count(t, ruleEscaping, "<pre>a b</pre>\n", "<pre>a \\* b</pre>\n", 0)
+}
+
 // TestSeverityIsADefault guards the bug that made the first run report 889
 // refusals: Audit stamped the rule's severity over the finding's own, so L13's
 // notice for a file with no record came out as a refusal.

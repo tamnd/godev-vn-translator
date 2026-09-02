@@ -23,6 +23,7 @@ const usage = `godev translates go.dev into Vietnamese.
 usage: godev [-C dir] <command> [flags]
 
 commands:
+  translate  translate the pages that need it and write the ones that pass
   audit      run the quality gates over the checkout and report
   chunk      show how a page would be cut up, and what would be asked about it
   routes     list the model routes in the order they would be tried
@@ -54,7 +55,7 @@ func main() {
 	cmd, rest := args[0], args[1:]
 	var runErr error
 	switch cmd {
-	case "audit", "chunk", "queue":
+	case "translate", "audit", "chunk", "queue":
 		// Only the commands that work against the site need the site. Asking
 		// for a checkout before printing a route table would be a strange thing
 		// to fail on. The queue needs it because a work list is state about one
@@ -65,6 +66,8 @@ func main() {
 			os.Exit(1)
 		}
 		switch cmd {
+		case "translate":
+			runErr = runTranslate(ctx, dir, rest)
 		case "audit":
 			runErr = runAudit(dir, rest)
 		case "chunk":

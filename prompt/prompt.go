@@ -57,6 +57,21 @@ var vietnameseRules string
 // apart.
 const fence = "\n=========="
 
+// split is the line that separates the two halves of a prompt file.
+//
+// Above it is the part that is the same on every request, and it is sent as the
+// system message. Below it is the part that is about this one piece, and it is
+// sent as the user message. The line is in the file rather than the split being
+// done in Go, so somebody editing the prose can see where the cut is and can
+// move a paragraph across it.
+//
+// The reason for the cut is the prompt cache. The shared half is around four
+// thousand characters and it is identical on all 2706 requests of a run, so it
+// is what the cache key is derived from; the half below it changes every time.
+// Putting a per page sentence above the line would make every request's system
+// message unique and turn the cache off without anything failing to say so.
+const split = "\n%%%%%\n"
+
 // SHA256 is the digest used everywhere in this repo, hex, of the whole text.
 func SHA256(text string) string {
 	sum := sha256.Sum256([]byte(text))
@@ -87,25 +102,42 @@ type Ask struct {
 // Repair reports whether this ask is a second attempt at a piece that failed.
 func (a Ask) Repair() bool { return a.Previous != "" && len(a.Findings) > 0 }
 
-// Text is the request.
+// Text is the whole request as one piece, for reading and for a test.
 func (a Ask) Text() (string, error) {
-	instructions, err := instructionsFor(a)
+	instructions, input, err := a.Messages()
 	if err != nil {
 		return "", err
 	}
-	text := strings.TrimSpace(instructions)
-	text = strings.ReplaceAll(text, "{{WHERE}}", where(a.Chunk))
-	text = strings.ReplaceAll(text, "{{VERBATIM}}", verbatimKeys())
-	text = strings.ReplaceAll(text, "{{RULES}}", strings.TrimSpace(vietnameseRules))
-	text = strings.ReplaceAll(text, "{{GLOSSARY}}", glossaryBlock(a.Glossary))
-	text = strings.ReplaceAll(text, "{{NOTE}}", note(a.Note))
-	text = strings.ReplaceAll(text, "{{PREVIOUS}}", strings.TrimRight(a.Previous, "\n"))
-	text = strings.ReplaceAll(text, "{{FINDINGS}}", findings(a.Findings))
+	return instructions + "\n" + input, nil
+}
+
+// Messages is the request as it is actually sent: the shared instructions, then
+// the part about this one piece.
+func (a Ask) Messages() (instructions, input string, err error) {
+	file, err := instructionsFor(a)
+	if err != nil {
+		return "", "", err
+	}
+	above, below, ok := strings.Cut(file, split)
+	if !ok {
+		return "", "", fmt.Errorf("prompt for %s has no %s line in it",
+			a.Chunk.Rel, strings.TrimSpace(split))
+	}
+	instructions = strings.TrimSpace(above)
+	instructions = strings.ReplaceAll(instructions, "{{VERBATIM}}", verbatimKeys())
+	instructions = strings.ReplaceAll(instructions, "{{RULES}}", strings.TrimSpace(vietnameseRules))
+
+	input = strings.TrimSpace(below)
+	input = strings.ReplaceAll(input, "{{WHERE}}", where(a.Chunk))
+	input = strings.ReplaceAll(input, "{{GLOSSARY}}", glossaryBlock(a.Glossary))
+	input = strings.ReplaceAll(input, "{{NOTE}}", note(a.Note))
+	input = strings.ReplaceAll(input, "{{PREVIOUS}}", strings.TrimRight(a.Previous, "\n"))
+	input = strings.ReplaceAll(input, "{{FINDINGS}}", findings(a.Findings))
 	// The body goes in last, and with no trimming of its leading whitespace.
 	// A chunk that starts with an indented line starts with an indented line,
 	// because in Markdown four spaces is a code block.
-	text = strings.ReplaceAll(text, "{{BODY}}", strings.TrimRight(a.Chunk.Text, "\n"))
-	return text + "\n", nil
+	input = strings.ReplaceAll(input, "{{BODY}}", strings.TrimRight(a.Chunk.Text, "\n"))
+	return instructions + "\n", input + "\n", nil
 }
 
 // Hash identifies the instructions an ask was built from, with everything
@@ -123,6 +155,8 @@ func Hash(a Ask) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Both halves, because a rule can live in either one and a change to either
+	// one changes what the answer should look like.
 	text := strings.TrimSpace(instructions)
 	text = strings.ReplaceAll(text, "{{RULES}}", strings.TrimSpace(vietnameseRules))
 	text = strings.ReplaceAll(text, "{{VERBATIM}}", verbatimKeys())

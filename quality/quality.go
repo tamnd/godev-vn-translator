@@ -104,8 +104,8 @@ type Input struct {
 	// translation, which only L01 is expected to have an opinion about.
 	EN, VI string
 	// ENDoc and VIDoc are the parsed forms, computed once and shared, because
-	// eleven of the thirteen rules want them and parsing 480 files thirteen
-	// times over is thirteen times the work for the same answer.
+	// twelve of the fourteen rules want them and parsing 480 files fourteen
+	// times over is fourteen times the work for the same answer.
 	ENDoc, VIDoc content.Document
 	// Glossary is the terminology the translation is held to. Nil disables L10
 	// rather than failing, so a checkout with no GLOSSARY.md still audits.
@@ -131,7 +131,42 @@ func Rules() []Rule {
 		ruleLanguage,
 		ruleCommentary,
 		ruleStale,
+		ruleEscaping,
 	}
+}
+
+// ChunkRules are the gates that mean the same thing on a piece of a file as
+// they do on the whole of it.
+//
+// Twelve of the fourteen do. They compare a sequence pulled out of the English
+// with the same sequence pulled out of the Vietnamese, and a piece of a file
+// has those sequences too. Running them on the piece rather than waiting for
+// the finished file is what makes a refusal actionable: the run knows which
+// request to make again, and it can make it while the route that answered is
+// still warm and the other pieces of that page are still being asked for.
+//
+// The two that are left out are the two that are about the file as a file. L01
+// is whether a translation exists at all, and a chunk that got an answer is not
+// what that is asking. L13 compares the English a translation was made from
+// with the English on disk now, which is a fact about the whole file recorded
+// once, and asking it of every chunk would report the same thing sixty times
+// for ref/mod.md.
+//
+// L05 stays in, and it is worth saying why, because it looks like it should not.
+// Half of it checks that a same document anchor resolves, and on a fragment an
+// anchor pointing at a heading in the next chunk does not. It is sound anyway,
+// because the rule subtracts the anchors the English fails to resolve before it
+// reports anything, and on the same fragment the English fails to resolve
+// exactly the same ones. What is left is only what the translation introduced.
+func ChunkRules() []Rule {
+	var out []Rule
+	for _, rule := range Rules() {
+		if rule.ID == rulePresence.ID || rule.ID == ruleStale.ID {
+			continue
+		}
+		out = append(out, rule)
+	}
+	return out
 }
 
 func (r Rule) applies(kind content.Kind) bool {
@@ -139,16 +174,24 @@ func (r Rule) applies(kind content.Kind) bool {
 }
 
 // Audit runs every rule over one pair.
-func Audit(in Input) []Finding {
+func Audit(in Input) []Finding { return run(in, Rules()) }
+
+// AuditChunk runs the rules that hold on a fragment over one piece of a file.
+//
+// The caller puts the piece's English in EN and the answer in VI, and gets
+// findings whose Line is counted from the start of the piece.
+func AuditChunk(in Input) []Finding { return run(in, ChunkRules()) }
+
+func run(in Input, rules []Rule) []Finding {
 	in.ENDoc = content.Parse(in.EN)
 	in.VIDoc = content.Parse(in.VI)
 	var out []Finding
-	for _, rule := range Rules() {
+	for _, rule := range rules {
 		if !rule.applies(in.Pair.Kind) {
 			continue
 		}
 		// A rule other than L01 has nothing to say about a file that is not
-		// there. Running them anyway produces thirteen findings per missing
+		// there. Running them anyway produces fourteen findings per missing
 		// file, which buries the one that matters.
 		if in.VI == "" && rule.ID != rulePresence.ID {
 			continue

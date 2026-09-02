@@ -699,3 +699,80 @@ func short(sum string) string {
 	}
 	return sum
 }
+
+// L14. The translation escapes Markdown punctuation the English does not.
+//
+// This rule came out of the first page this tool translated end to end, and it
+// is the only one here that was not written against a defect a person made. The
+// model came back with every list marker, every heading and every link target
+// carrying a backslash: `\-` for a bullet, `\#` for a heading, `\(` around a
+// link target. Nothing about the text looked wrong. What it rendered as was one
+// long paragraph with brackets in it.
+//
+// The instruction in translate.md now says not to, and that took out the list
+// markers, the headings and the link targets. What it did not take out was the
+// backticks, and blog/go1.27.md came back with 24 of them: `[\`math/rand/v2.Rand\`](...)`
+// where the link is fine, the heading count is fine, and the code span is two
+// literal backslashes and a backtick on the page. Every one of the other thirteen
+// gates passes that file. This is the only defect in this package that survives
+// all of them, and it is one a reader sees immediately.
+//
+// The comparison is against the English and not against zero, because the
+// English uses these escapes and means them: 166 of them across 52 files,
+// including blog/declaration-syntax.md, which is a post about Go's syntax and
+// escapes what it is quoting. Counting them on both sides and reporting the
+// difference has one hit on the corpus today, which is the page above, and none
+// on any of the 557 translations that were made by a person.
+//
+// Fenced code and <pre> are cut out first. A backslash inside a code block is a
+// backslash, and Go source is full of them.
+var ruleEscaping = Rule{
+	ID: "L14", Name: "escaping", Severity: Refuse,
+	Check: func(in Input) []Finding {
+		vi := escapes(in.VIDoc.Body)
+		en := escapes(in.ENDoc.Body)
+		var out []Finding
+		for _, mark := range sortedKeys(vi) {
+			extra := vi[mark] - en[mark]
+			if extra <= 0 {
+				continue
+			}
+			out = append(out, Finding{
+				Line: escapeLine(in.VIDoc.Body, mark),
+				Msg: fmt.Sprintf("writes %s %d times where the English writes it %d,"+
+					" so the backslash is on the page rather than the markup",
+					mark, vi[mark], en[mark]),
+			})
+		}
+		return out
+	},
+}
+
+// escapePunct is the punctuation Markdown reads, and the only characters a
+// backslash in front of does anything to.
+const escapePunct = "-#()[]`*_~+.!|>"
+
+var (
+	escapeRE     = regexp.MustCompile(`\\[` + regexp.QuoteMeta(escapePunct) + `]`)
+	escapeCodeRE = regexp.MustCompile("(?ms)^\\s*(```+|~~~+).*?^\\s*(```+|~~~+)|" +
+		`<pre\b.*?</pre>|<script\b.*?</script>|<style\b.*?</style>`)
+)
+
+func escapes(body string) map[string]int {
+	out := map[string]int{}
+	for _, m := range escapeRE.FindAllString(escapeCodeRE.ReplaceAllString(body, ""), -1) {
+		out[m]++
+	}
+	return out
+}
+
+// escapeLine finds the first one, so a finding is something you can open at the
+// right place rather than a count.
+func escapeLine(body, mark string) int {
+	for i, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, mark) {
+			return i + 1
+		}
+	}
+	return 0
+}

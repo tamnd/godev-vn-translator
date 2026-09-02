@@ -53,6 +53,10 @@ type Pool struct {
 	// should never be a surprise after the fact.
 	Logf func(string, ...any)
 	Now  func() time.Time
+	// Dial replaces the transport, for a test that wants the pool's picking and
+	// cooling down behaviour without a server on the other end of it. Nil is the
+	// real one.
+	Dial func(value Route) (api.Completer, error)
 
 	mu      sync.Mutex
 	entries []*entry
@@ -75,6 +79,9 @@ func NewPool(registry Registry) *Pool {
 // Pick is handed an api.Completer and cannot tell which it got, which is the
 // point of having this in one function rather than at every call site.
 func (p *Pool) client(value Route) (api.Completer, error) {
+	if p.Dial != nil {
+		return p.Dial(value)
+	}
 	if value.IsCommand() {
 		timeout := p.Timeout
 		if value.Timeout > 0 {

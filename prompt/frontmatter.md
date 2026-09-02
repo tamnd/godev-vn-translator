@@ -71,6 +71,10 @@ glossary says so. And no `template` key appeared, because there was none.
 
 {{RULES}}
 
+%%%%%
+
+{{WHERE}}
+
 {{GLOSSARY}}
 {{NOTE}}
 Write the block and nothing else. No explanation, no fence around it, no note.

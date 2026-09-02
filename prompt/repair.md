@@ -13,6 +13,13 @@ defect gets in while the first one is being taken out.
 Give back the whole piece and not a patch. The answer replaces the file, so an
 answer that is only the fixed paragraph loses everything around it.
 
+Look for a backslash first. When the finding is that headings or links have gone
+missing and you can see them in the Vietnamese, they are almost certainly there
+with a backslash in front of them, and `\#` is not a heading and `\(` is not the
+start of a link target. Take the backslashes out. That one cause is behind more
+of these findings than everything else together, and taking it out is the whole
+repair: change nothing else.
+
 If a finding is wrong, fix nothing for it and leave that part as it is. Say
 nothing about it: your answer is the file, and there is nowhere in it to put a
 note. A finding that keeps coming back on work that is right is a bug in the
@@ -20,6 +27,10 @@ check, and it gets found by the file failing three times and being put in front
 of a person, which is what the third attempt is for.
 
 {{RULES}}
+
+%%%%%
+
+{{WHERE}}
 
 {{GLOSSARY}}
 {{NOTE}}

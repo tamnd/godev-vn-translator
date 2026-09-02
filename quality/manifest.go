@@ -26,6 +26,14 @@ type Record struct {
 	// 41 from the 400 that are still current, and the only safe reading is
 	// that everything is stale.
 	EnglishSHA256 string `json:"english_sha256"`
+	// PromptSHA256 is the instructions the translation was asked for under, as
+	// prompt.Hash reports them. It answers the other stale question: not "has
+	// the English moved" but "were these rules the current rules". Tightening a
+	// gate usually means tightening the sentence in the prompt that goes with
+	// it, and after that the pages written under the old sentence are worth
+	// asking for again. Without this there is no way to tell them apart, and
+	// the only safe reading is again that everything is stale.
+	PromptSHA256 string `json:"prompt_sha256,omitempty"`
 	// Route and Model name what answered, because a page translated by a cut
 	// down model is a page worth reading again, and a report that cannot say
 	// which pages those are is a report that cannot suggest anything.
@@ -38,6 +46,15 @@ type Record struct {
 	// Chunks is how many pieces the file went over in, which is the number to
 	// look at first when a long page comes back inconsistent with itself.
 	Chunks int `json:"chunks,omitempty"`
+	// English is how many of those pieces were given up on and written in
+	// English so that the rest of the page could ship.
+	//
+	// It is here because it is the one thing about a finished file that no gate
+	// will ever report. The page is whole, every link resolves, every heading is
+	// in place, and three paragraphs in the middle of it are in the wrong
+	// language. A reader sees that immediately and an audit does not, so the
+	// number has to be written down at the moment it is decided.
+	English int `json:"english,omitempty"`
 }
 
 // Manifest is the whole record, keyed by path under _content.
