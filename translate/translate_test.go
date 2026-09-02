@@ -601,6 +601,57 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 			"Xem [tài liệu](https://go.dev/doc).",
 		},
 		{
+			// Nine of these reached doc/contribute.html and one reached
+			// doc/diagnostics.html, and all ten were dead links on a merged page.
+			"a link target autolinked inside an href",
+			`<a href="https://go.googlesource.com/go">the repository</a>`,
+			`<a href="[https://go.googlesource.com/go](https://go.googlesource.com/go)">kho lưu trữ</a>`,
+			`<a href="https://go.googlesource.com/go">kho lưu trữ</a>`,
+		},
+		{
+			"an src attribute too",
+			`<img src="/images/gopher.png">`,
+			`<img src="[/images/gopher.png](/images/gopher.png)">`,
+			`<img src="/images/gopher.png">`,
+		},
+		{
+			// Same rule as the Markdown form. Two different urls is a thing that
+			// cannot be repaired without guessing what was meant.
+			"two different urls in an href are left alone",
+			`<a href="https://a.example">a</a>`,
+			`<a href="[https://a.example](https://b.example)">a</a>`,
+			`<a href="[https://a.example](https://b.example)">a</a>`,
+		},
+		{
+			// 72 of these were in five stored answers, and 38 of them shipped.
+			"a tab that came back as an entity",
+			"\tfunc main() {\n\t\tprintln()\n",
+			"&#x9;func main() {\n&#x9;&#x9;println()\n",
+			"\tfunc main() {\n\t\tprintln()\n",
+		},
+		{
+			// The corpus writes &#39;, &#160;, &#xa0;, &#xb6;, &#x60;, &#x261e;
+			// and &#x26; on purpose, so an entity the English writes is the
+			// passage asking for it.
+			"an entity the English writes as well stays",
+			"Don&#39;t use it.",
+			"Đừng dùng nó&#39;.",
+			"Đừng dùng nó&#39;.",
+		},
+		{
+			// Nothing says the character was wanted raw, so nothing is decided.
+			"an entity for a character the English never writes stays",
+			"a plain sentence",
+			"một câu &#x9; đơn giản",
+			"một câu &#x9; đơn giản",
+		},
+		{
+			"a decimal entity works the same way",
+			"character U+FFFD '�' starts at byte position 6",
+			"ký tự U+FFFD '&#65533;' bắt đầu ở vị trí byte 6",
+			"ký tự U+FFFD '�' bắt đầu ở vị trí byte 6",
+		},
+		{
 			"an answer with nothing wrong with it is untouched",
 			"See [the docs](/doc/) for **more**.",
 			"Xem [tài liệu](/doc/) để biết **thêm**.",
