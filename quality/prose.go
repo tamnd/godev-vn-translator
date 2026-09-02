@@ -24,6 +24,8 @@ func Prose(text string) string {
 	text = stripFences(text)
 	text = actionBlockRE.ReplaceAllString(text, " ")
 	text = htmlCommentRE.ReplaceAllString(text, " ")
+	text = styleRE.ReplaceAllString(text, " ")
+	text = scriptRE.ReplaceAllString(text, " ")
 	// A link keeps its text and loses its target. The title after the target is
 	// prose and is kept, which is what makes ref/mod.md's "Nâng cấp MVS" count.
 	text = linkTargetRE.ReplaceAllString(text, "$1 $2")
@@ -39,12 +41,23 @@ var (
 	frontRE       = regexp.MustCompile(`(?s)\A---\r?\n.*?\r?\n---\r?\n`)
 	actionBlockRE = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
 	htmlCommentRE = regexp.MustCompile(`(?s)<!--.*?-->`)
-	linkTargetRE  = regexp.MustCompile(`\[([^\]]*)\]\([^\s)]*\s*(?:"([^"]*)")?\s*\)`)
-	imageRE       = regexp.MustCompile(`!\[[^\]]*\]`)
-	autolinkRE    = regexp.MustCompile(`<https?://[^>]*>|\bhttps?://\S+`)
-	inlineCodeRE  = regexp.MustCompile("`[^`]*`")
-	htmlTagRE     = regexp.MustCompile(`(?s)<[^>]+>`)
-	attrBlockRE   = regexp.MustCompile(`\{[#.][^}]*\}`)
+	// styleRE and scriptRE take the body and not just the tags. htmlTagRE below
+	// removes <style> and </style> and leaves the CSS between them standing, and
+	// CSS is letters in the Latin alphabet with no tone marks on any of them,
+	// which is exactly what L11 is looking for when it decides a page was never
+	// translated. `talks/2012/insidepresent/wire.html` is thirteen lines of CSS
+	// and one empty div, it is byte for byte correct in both languages because
+	// there is nothing in it to translate, and it was the only L11 refusal on the
+	// corpus. Two expressions rather than one because RE2 has no backreference to
+	// match the closing tag against the opening one.
+	styleRE      = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
+	scriptRE     = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>`)
+	linkTargetRE = regexp.MustCompile(`\[([^\]]*)\]\([^\s)]*\s*(?:"([^"]*)")?\s*\)`)
+	imageRE      = regexp.MustCompile(`!\[[^\]]*\]`)
+	autolinkRE   = regexp.MustCompile(`<https?://[^>]*>|\bhttps?://\S+`)
+	inlineCodeRE = regexp.MustCompile("`[^`]*`")
+	htmlTagRE    = regexp.MustCompile(`(?s)<[^>]+>`)
+	attrBlockRE  = regexp.MustCompile(`\{[#.][^}]*\}`)
 )
 
 func stripFrontMatter(text string) string {
