@@ -566,18 +566,38 @@ func clean(text string) string {
 // separately and compared in Go, because RE2 has no backreference.
 var selfLinkRE = regexp.MustCompile(`\]\(\[([^\[\]()\s]+)\]\(([^\[\]()\s]+)\)\)`)
 
+// attrSelfLinkRE is the same defect inside an HTML attribute,
+// `href="[url](url)"` where the page wrote `href="url"`.
+//
+// The `.html` pages under _content are hand written HTML rather than Markdown,
+// so their links are attributes, and the converter autolinks the url in an
+// attribute as readily as one in prose. Double quotes only, because that is
+// what every anchor in the corpus uses and what the evidence shows.
+var attrSelfLinkRE = regexp.MustCompile(`(href|src)="\[([^\[\]"]+)\]\(([^()"]+)\)"`)
+
+// entityRE matches a numeric character reference, decimal or hexadecimal.
+var entityRE = regexp.MustCompile(`&#(x[0-9a-fA-F]+|[0-9]+);`)
+
 // unmangle undoes what the transport does to an answer on the way back.
 //
 // This is not the model getting it wrong. Three of the four routes are a
 // headless browser driving chatgpt.com, so an answer is rendered to HTML by a
 // web application and converted back to Markdown by a scraper, and that round
-// trip is lossy in two ways that are always the same. Every rejected answer in
-// the work directory when this was written had at least one of them.
+// trip is lossy in ways that are always the same. Every rejected answer in the
+// work directory when this was written had at least one of them.
 //
 // A bare url in a link target comes back autolinked inside its own link, so
 // `](https://example.com)` arrives as `]([https://example.com](https://example.com))`.
 // Nobody writes that and no page contains it, the correct repair is the only
 // repair, and L07 was already printing it back with the fix in the message.
+//
+// It happens in an HTML attribute too, and that one shipped. Nine anchors in
+// doc/contribute.html and one in doc/diagnostics.html reached _content_vi as
+// `href="[url](url)"`, which is not a url, so all ten were dead links on a
+// merged page. L07 did not object because it reads Markdown links and an .html
+// page has none. The two urls were identical in all ten, which is the same
+// thing that makes the Markdown repair safe, and the replacement only runs when
+// they match.
 //
 // The other is backslashes. The converter escapes punctuation on the way out,
 // so `x` arrives as `\`x\“ and `**bold**` as `\*\*bold\*\*`. Across the eight
@@ -595,6 +615,21 @@ var selfLinkRE = regexp.MustCompile(`\]\(\[([^\[\]()\s]+)\]\(([^\[\]()\s]+)\)\)`
 // Punctuation only, one character at a time. \n and \t inside a fenced Go
 // string are not escapes of anything and the letter test is what keeps them.
 //
+// The third is a character that came back as a numeric HTML entity. A tab
+// arrives as `&#x9;`, and 72 of them were sitting in five stored answers when
+// this was written, 38 of which reached doc/contribute.html and are on the page
+// as that literal text. The arithmetic on that file is what makes it certain
+// rather than likely: the English has 84 tab indented lines and the Vietnamese
+// had 46 tabs and 38 entities.
+//
+// The test is the same one the backslashes get, and it has to be, because the
+// English does write entities. There are `&#39;`, `&#160;`, `&#xa0;`, `&#xb6;`,
+// `&#x60;`, `&#x261e;` and `&#x26;` under _content, every one of them written
+// on purpose. So an entity comes apart only where the English writes the
+// character it stands for and does not write the entity, which is the passage
+// saying it wants the character raw. Where the English writes the entity, this
+// leaves the answer alone.
+//
 // The backslashes come off first. The converter escapes the brackets in the
 // wrapped link as readily as anything else, so a run that repaired the links
 // first would leave `\]\(\[url\]\(url\)\)` standing and then reveal it, and on
@@ -609,13 +644,41 @@ func unmangle(text, english string) string {
 		}
 		b.WriteRune(runes[i])
 	}
-	return selfLinkRE.ReplaceAllStringFunc(b.String(), func(m string) string {
+	text = selfLinkRE.ReplaceAllStringFunc(b.String(), func(m string) string {
 		g := selfLinkRE.FindStringSubmatch(m)
 		if g[1] != g[2] {
 			return m
 		}
 		return "](" + g[1] + ")"
 	})
+	text = attrSelfLinkRE.ReplaceAllStringFunc(text, func(m string) string {
+		g := attrSelfLinkRE.FindStringSubmatch(m)
+		if g[2] != g[3] {
+			return m
+		}
+		return g[1] + `="` + g[3] + `"`
+	})
+	return entityRE.ReplaceAllStringFunc(text, func(m string) string {
+		r, ok := entityRune(m)
+		if !ok || strings.Contains(english, m) || !strings.ContainsRune(english, r) {
+			return m
+		}
+		return string(r)
+	})
+}
+
+// entityRune decodes a numeric character reference.
+func entityRune(entity string) (rune, bool) {
+	digits := entity[2 : len(entity)-1]
+	base := 10
+	if digits[0] == 'x' || digits[0] == 'X' {
+		digits, base = digits[1:], 16
+	}
+	n, err := strconv.ParseInt(digits, base, 32)
+	if err != nil || n <= 0 || n > unicode.MaxRune {
+		return 0, false
+	}
+	return rune(n), true
 }
 
 // addedInTransit says whether a backslash in front of this character can only
