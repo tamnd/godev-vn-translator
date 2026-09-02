@@ -26,6 +26,7 @@ type Document struct {
 	Fences   []Fence
 	Links    []Link
 	Actions  []string
+	Comments []string
 }
 
 // Heading is one ATX heading.
@@ -93,7 +94,38 @@ func Parse(text string) Document {
 	doc.Links = linksOf(doc.Body)
 	doc.Actions = actionRE.FindAllString(text, -1)
 	doc.Blocks = blocks(doc.Body)
+	doc.Comments = comments(doc.Body)
 	return doc
+}
+
+var commentRE = regexp.MustCompile(`(?s)<!--(.*?)-->`)
+
+// comments pulls out the HTML comments, which on this site are not remarks. A
+// release note line is written under `<!-- CL 29072 -->` or
+// `<!-- go.dev/issue/61405 -->`, which is how anyone reading it later gets from
+// the sentence back to the change that caused it, and the `.html` pages carry
+// `<!-- for consistent spacing -->` between inline elements, where the comment
+// is what keeps the whitespace out of the rendering.
+//
+// The site's own page metadata is not a comment and is dropped here. An `.html`
+// page under _content opens with `<!--{ "Title": ... }-->`, and Parse only
+// knows how to lift YAML front matter out of the body, so that block is still
+// in Body when this runs. It is the one comment on the site whose contents are
+// meant to be translated, and leaving it in would make every translated .html
+// page look like it had lost one. Nothing else on the corpus opens with a
+// brace.
+//
+// Fenced code is blanked first, for the same reason links are: a comment in an
+// example is not the page's own.
+func comments(body string) []string {
+	var out []string
+	for _, m := range commentRE.FindAllStringSubmatch(blankFences(body), -1) {
+		if strings.HasPrefix(strings.TrimSpace(m[1]), "{") {
+			continue
+		}
+		out = append(out, m[1])
+	}
+	return out
 }
 
 // fences pulls out the code blocks. Everything inside one is exempt from the

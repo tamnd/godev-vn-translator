@@ -764,7 +764,7 @@ func short(sum string) string {
 // markers, the headings and the link targets. What it did not take out was the
 // backticks, and blog/go1.27.md came back with 24 of them: `[\`math/rand/v2.Rand\`](...)`
 // where the link is fine, the heading count is fine, and the code span is two
-// literal backslashes and a backtick on the page. Every one of the other thirteen
+// literal backslashes and a backtick on the page. Every one of the other fourteen
 // gates passes that file. This is the only defect in this package that survives
 // all of them, and it is one a reader sees immediately.
 //
@@ -815,6 +815,88 @@ func escapes(body string) map[string]int {
 		out[m]++
 	}
 	return out
+}
+
+// L15. An HTML comment the English carries is gone.
+//
+// This one came out of a defect it does not catch, which is worth saying up
+// front so nobody expects more of it than it gives. doc/go1.8.md had a release
+// note bullet about SOCKS5 proxy support that appears nowhere in the English
+// file and nowhere in the Go 1.8 release notes. It was invented. Every other
+// gate passed that page: the heading tree matched, the block count matched, and
+// 120 of the English's 121 comments were there. It was found by hand, by
+// noticing that two links had gone.
+//
+// The comment count is the closest thing to a check that exists for that kind
+// of damage, because on this site a comment is not a remark. The release notes
+// are written one bullet per change under `<!-- CL 29072 -->` or
+// `<!-- go.dev/issue/61405 -->`, and that line is the only thing connecting a
+// sentence about internationalized domain names to the change that made it
+// true. doc/go1.20.md has 200 of them. Lose one and a bullet has no provenance,
+// which is exactly the state the invented bullet was in.
+//
+// The `.html` pages are the other half. doc/install.html and
+// doc/manage-install.html each write `<!-- for consistent spacing -->` between
+// inline elements, four times between them in each file, and the Vietnamese has
+// none. That is not documentation, it is the thing holding the whitespace out
+// of the rendered page.
+//
+// The rule fires on the count and not on the text, and the difference matters.
+// Three files have the same number of comments on both sides with the text
+// changed, and all three are fine: blog/inliner.md and doc/toolchain.md differ
+// only in curly quotes against straight ones, and doc/modules/gomod-ref.md
+// translated a note telling whoever edits the file to update /ref/mod as well,
+// which is a note for a Vietnamese editor and is better in Vietnamese. A rule
+// that refused those would be refusing correct work.
+//
+// So the count decides whether the file is reported, and once it is, the
+// findings name what went missing by matching the comments up on normalized
+// text. On a file that both dropped one comment and reworded another that names
+// two things for a shortfall of one. That is over-reporting by one line on a
+// file that is already refusing, and it beats saying "one of the 200 is gone".
+//
+// 32 findings across 13 files on the corpus. Extra comments are not reported:
+// doc/tutorial/generics.md has two where the English has one, and adding a note
+// to a translation is not a defect.
+var ruleComments = Rule{
+	ID: "L15", Name: "comments", Severity: Refuse,
+	Kinds: []content.Kind{content.KindMarkdown, content.KindHTML},
+	Check: func(in Input) []Finding {
+		en, vi := in.ENDoc.Comments, in.VIDoc.Comments
+		if len(vi) >= len(en) {
+			return nil
+		}
+		have := map[string]int{}
+		for _, c := range vi {
+			have[normalizeComment(c)]++
+		}
+		var out []Finding
+		for _, c := range en {
+			key := normalizeComment(c)
+			if have[key] > 0 {
+				have[key]--
+				continue
+			}
+			out = append(out, Finding{Msg: fmt.Sprintf(
+				"drops the comment <!--%s-->, which the English has", clip(key, 80))})
+		}
+		return out
+	},
+}
+
+// commentQuotes are the pairs a translation swaps without meaning anything by
+// it. A hidden note that came back with a straight quote where the English
+// wrote a curly one is the same note.
+var commentQuotes = strings.NewReplacer(
+	"‘", "'", "’", "'", "“", `"`, "”", `"`,
+	"–", "-", "—", "-",
+)
+
+// normalizeComment is a comment reduced to what identifies it, which is its
+// words. Line breaks inside a comment move when the text around it is rewrapped
+// and they carry nothing.
+func normalizeComment(c string) string {
+	return strings.TrimSpace(spaceRE.ReplaceAllString(commentQuotes.Replace(c), " "))
 }
 
 // escapeLine finds the first one, so a finding is something you can open at the
