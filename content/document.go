@@ -240,6 +240,23 @@ func headings(body string, kind Kind) []Heading {
 // that follows it.
 var linkRE = regexp.MustCompile(`(!?)\[([^\]]*)\]\(\s*([^\s)]*)\s*(?:"([^"]*)")?\s*\)`)
 
+// htmlLinkRE matches an href or src attribute on the elements that carry one.
+//
+// The 78 `.html` pages under _content are hand written HTML, not Markdown, so
+// every link on them is an attribute and linkRE sees none of it. Without this
+// L07 has been checking nothing at all on 55 translated pages carrying 772
+// targets between them, which is how ten anchors reached _content_vi reading
+// `href="[url](url)"`, a target that is not a url, without a gate objecting.
+//
+// The element list is closed on purpose. An `href` is also how `<link>` names a
+// stylesheet and how `<base>` names a prefix, and a `src` belongs to a dozen
+// things, but a rule that took any attribute called href anywhere would start
+// reading the examples the page is teaching from. These six are the ones the
+// corpus uses for a link a reader can follow or an asset the page needs.
+//
+// Double quotes only, which is what all 772 of them use.
+var htmlLinkRE = regexp.MustCompile(`(?i)<(a|img|link|script|iframe|source)\b[^>]*?\b(href|src)="([^"]*)"`)
+
 // linksOf reads the whole body at once rather than a line at a time, because
 // the link text is allowed to wrap.
 //
@@ -275,6 +292,18 @@ func linksOf(body string) []Link {
 			Text:   at(2),
 			Target: at(3),
 			Title:  at(4),
+			Line:   strings.Count(text[:m[0]], "\n") + 1,
+		})
+	}
+	// Then the HTML anchors, on the same blanked body so that an example
+	// teaching HTML does not count as the page's own links. Text is left empty:
+	// an anchor's label is between the tags and can hold other elements, a
+	// regexp cannot take it out reliably, and no rule reads it. Target is the
+	// whole of what L05 and L07 want.
+	for _, m := range htmlLinkRE.FindAllStringSubmatchIndex(text, -1) {
+		out = append(out, Link{
+			Image:  strings.EqualFold(text[m[2]:m[3]], "img"),
+			Target: text[m[6]:m[7]],
 			Line:   strings.Count(text[:m[0]], "\n") + 1,
 		})
 	}

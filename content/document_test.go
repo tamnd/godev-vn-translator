@@ -73,6 +73,62 @@ func TestLinksOf(t *testing.T) {
 			body: "[a] (b c)",
 			want: nil,
 		},
+		{
+			// The 78 .html pages keep every link in an attribute, so without
+			// this L07 checks 772 targets by not looking at them.
+			name: "an html anchor",
+			body: `<p>Xem <a href="/pkg">thư viện chuẩn</a>.</p>`,
+			want: []Link{{Target: "/pkg", Line: 1}},
+		},
+		{
+			name: "an html image is an image",
+			body: `<img src="/images/gopher.png" alt="gopher">`,
+			want: []Link{{Image: true, Target: "/images/gopher.png", Line: 1}},
+		},
+		{
+			// Other attributes come first on plenty of the corpus's anchors and
+			// the class attribute is the common one.
+			name: "the href is not the first attribute",
+			body: `<a class="download" id="dl" href="/dl">Tải xuống</a>`,
+			want: []Link{{Target: "/dl", Line: 1}},
+		},
+		{
+			name: "a stylesheet and a script",
+			body: "<link rel=\"stylesheet\" href=\"/css/site.css\">\n<script src=\"/js/site.js\"></script>",
+			want: []Link{
+				{Target: "/css/site.css", Line: 1},
+				{Target: "/js/site.js", Line: 2},
+			},
+		},
+		{
+			// The same reason a Markdown link inside a fence does not count. A
+			// page teaching HTML is not linking to what it quotes.
+			name: "an anchor inside a fence does not count",
+			body: "<a href=\"/a\">a</a>\n```\n<a href=\"/b\">b</a>\n```\n<a href=\"/c\">c</a>",
+			want: []Link{
+				{Target: "/a", Line: 1},
+				{Target: "/c", Line: 5},
+			},
+		},
+		{
+			// The element list is closed, so an href on something that is not a
+			// link is not read. <base> sets a prefix for the page and is not a
+			// thing a reader follows.
+			name: "an href on an element not in the list is not a link",
+			body: `<base href="/doc/">`,
+			want: nil,
+		},
+		{
+			// Both forms on one page, which is what a Markdown file with raw
+			// HTML in it looks like. Markdown first, then the attributes, which
+			// is why this is the order.
+			name: "both forms",
+			body: "[a](/b)\n<a href=\"/c\">c</a>",
+			want: []Link{
+				{Text: "a", Target: "/b", Line: 1},
+				{Target: "/c", Line: 2},
+			},
+		},
 	}
 
 	for _, c := range cases {
