@@ -141,3 +141,106 @@ func TestComments(t *testing.T) {
 		})
 	}
 }
+
+// The heading extractor has to know the format, because present(1) and Markdown
+// disagree about what a hash at the start of a line means. In Markdown it opens
+// a heading; in a .slide or a .article it opens a comment, and the headings are
+// the star lines.
+func TestHeadings(t *testing.T) {
+	const markdown = "# Một\n\ntext\n\n## Hai\n"
+	const present = `Title of the talk
+Subtitle
+
+# This is a comment in present(1), and it wraps
+# onto a second line.
+
+* Slide one
+
+Some prose.
+
+** A subsection
+
+*** Deeper
+
+# Another comment.
+
+* Slide two
+`
+	cases := []struct {
+		name string
+		kind Kind
+		body string
+		want []string
+	}{
+		{"markdown", KindMarkdown, markdown, []string{"Một", "Hai"}},
+		{
+			"a slide counts stars",
+			KindSlide, present,
+			[]string{"Slide one", "A subsection", "Deeper", "Slide two"},
+		},
+		{
+			"an article counts stars too",
+			KindArticle, present,
+			[]string{"Slide one", "A subsection", "Deeper", "Slide two"},
+		},
+		{
+			// The bug this was written for. Reading a slide as Markdown counts
+			// its comments, and a comment rewrapped by a translator changes the
+			// count, so L04 refused a file that had lost nothing.
+			"reading a slide as markdown counts the comments instead",
+			KindMarkdown, present,
+			[]string{
+				"This is a comment in present(1), and it wraps",
+				"onto a second line.",
+				"Another comment.",
+			},
+		},
+		{
+			"a star inside a fence is not a heading",
+			KindSlide, "* Real\n\n```\n* Not a heading\n```\n\n* Also real\n",
+			[]string{"Real", "Also real"},
+		},
+		{
+			"a bare star with no text is not a heading",
+			KindSlide, "*\n*bold*\n* Real\n",
+			[]string{"Real"},
+		},
+		{
+			"a hash in a slide yields nothing when there are no stars",
+			KindSlide, "# Only a comment.\n\ntext\n",
+			nil,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := Parse(tt.kind, tt.body)
+			var got []string
+			for _, h := range doc.Headings {
+				got = append(got, h.Text)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("heading %d is %q, want %q", i+1, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// Levels come off the marker in both formats, which is what L04 compares after
+// it has agreed on the count.
+func TestHeadingLevels(t *testing.T) {
+	doc := Parse(KindSlide, "* One\n** Two\n*** Three\n**** Four\n")
+	want := []int{1, 2, 3, 4}
+	if len(doc.Headings) != len(want) {
+		t.Fatalf("got %d headings, want %d", len(doc.Headings), len(want))
+	}
+	for i, h := range doc.Headings {
+		if h.Level != want[i] {
+			t.Errorf("heading %d is level %d, want %d", i+1, h.Level, want[i])
+		}
+	}
+}
