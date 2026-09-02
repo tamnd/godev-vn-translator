@@ -201,9 +201,22 @@ Some prose.
 			[]string{"Real", "Also real"},
 		},
 		{
-			"a bare star with no text is not a heading",
+			// A bare star is a section with an empty title, which is what the
+			// decks use for a slide that is one image and nothing else. A star
+			// with text on both sides of it is emphasis and not a section.
+			"a bare star is a heading with no title and bold text is not",
 			KindSlide, "*\n*bold*\n* Real\n",
-			[]string{"Real"},
+			[]string{"", "Real"},
+		},
+		{
+			"a star with trailing spaces is the same heading as a bare star",
+			KindSlide, "*  \n\n.image a.png\n\n* Real\n",
+			[]string{"", "Real"},
+		},
+		{
+			"stars with no title keep their level",
+			KindSlide, "*\n**\n***\n",
+			[]string{"", "", ""},
 		},
 		{
 			"a hash in a slide yields nothing when there are no stars",

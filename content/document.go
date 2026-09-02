@@ -79,7 +79,17 @@ var (
 	// .slide files are written in. A section there opens with a star and not a
 	// hash, and a line that opens with a hash is a comment, which is the exact
 	// opposite of what headingRE would make of it.
-	presentHeadingRE = regexp.MustCompile(`^(\*{1,4})\s+(.*?)\s*$`)
+	//
+	// The title is optional because present says it is. parseSections in
+	// x/tools/present opens a section on `text == prefix || strings.HasPrefix(text,
+	// prefix+" ")`, so a line holding nothing but stars is a section with an empty
+	// title, and the slide decks use that for the ones that are a single full
+	// bleed image. English writes those as a star and a couple of trailing spaces
+	// and the Vietnamese wrote a bare star, which renders the same and which this
+	// rule was calling a lost section. Three in talks/2013/oscon-dl.slide and one
+	// in talks/2015/gophercon-goevolution.slide, and those two files were the whole
+	// difference on the corpus.
+	presentHeadingRE = regexp.MustCompile(`^(\*{1,4})(?:\s+(.*?))?\s*$`)
 	attrsRE          = regexp.MustCompile(`\s*\{([^}]*)\}\s*$`)
 	idRE             = regexp.MustCompile(`#([^\s}]+)`)
 	fenceOpenRE      = regexp.MustCompile("^(\\s*)(```+|~~~+)\\s*(\\S*)")
