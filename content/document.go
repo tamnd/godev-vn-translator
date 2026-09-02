@@ -80,10 +80,10 @@ var (
 	// hash, and a line that opens with a hash is a comment, which is the exact
 	// opposite of what headingRE would make of it.
 	presentHeadingRE = regexp.MustCompile(`^(\*{1,4})\s+(.*?)\s*$`)
-	attrsRE       = regexp.MustCompile(`\s*\{([^}]*)\}\s*$`)
-	idRE          = regexp.MustCompile(`#([^\s}]+)`)
-	fenceOpenRE   = regexp.MustCompile("^(\\s*)(```+|~~~+)\\s*(\\S*)")
-	actionRE      = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
+	attrsRE          = regexp.MustCompile(`\s*\{([^}]*)\}\s*$`)
+	idRE             = regexp.MustCompile(`#([^\s}]+)`)
+	fenceOpenRE      = regexp.MustCompile("^(\\s*)(```+|~~~+)\\s*(\\S*)")
+	actionRE         = regexp.MustCompile(`(?s)\{\{.*?\}\}`)
 )
 
 // Parse takes a file apart.
