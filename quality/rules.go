@@ -659,7 +659,7 @@ var ruleCommentary = Rule{
 
 // L13. The English moved after the translation was made.
 //
-// This is the rule the upstream sync exists for. Merging 223 commits from
+// This is the rule the upstream sync exists for. Merging 117 commits from
 // golang/website changed 32 files under _content and added 9, and nothing
 // under _content_vi moved, so 41 Vietnamese pages now describe a version of
 // go.dev that is not the one shipping. Without a record of what each
