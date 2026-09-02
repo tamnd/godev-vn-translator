@@ -115,7 +115,7 @@ func (h *harness) pairs() []content.Pair {
 // cycle is what a real run does: plan, work the queue, put the files together.
 func (h *harness) cycle() (Result, Assembly) {
 	h.t.Helper()
-	if _, err := h.engine.Plan(h.pairs()); err != nil {
+	if _, err := h.engine.Plan(h.pairs(), false); err != nil {
 		h.t.Fatal(err)
 	}
 	result, err := h.engine.Run(context.Background(), "", 1)
@@ -336,7 +336,7 @@ func TestARouteThatDiesDoesNotSpendAnAttempt(t *testing.T) {
 		func(string, int) (string, error) { return "", errors.New("tunnel is down") })
 	h.engine.Log = func(string, ...any) {}
 
-	if _, err := h.engine.Plan(h.pairs()); err != nil {
+	if _, err := h.engine.Plan(h.pairs(), false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.engine.Run(context.Background(), "", 1); err == nil {
@@ -391,7 +391,7 @@ func TestAPageIsNotWrittenUntilEveryPieceIsIn(t *testing.T) {
 	if len(cut) < 4 {
 		t.Fatal("the test page did not come out in several pieces")
 	}
-	plan, err := h.engine.Plan(h.pairs())
+	plan, err := h.engine.Plan(h.pairs(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,5 +483,59 @@ func TestAnIndentedFirstLineKeepsItsIndent(t *testing.T) {
 	}
 	if got := clean("\n\n  hai dòng  \n\n"); got != "  hai dòng" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// TestPlanDry is the flag doing what its help says. `-plan` reads as free, so
+// the first thing anyone does with a corpus this size is run it to see how much
+// work is there, and for a while that quietly queued the whole site. Undoing it
+// meant draining, and draining takes out every pending job and not just the ones
+// the plan added.
+func TestPlanDry(t *testing.T) {
+	h := setup(t, map[string]string{"ref/mod.md": page}, func(english string, _ int) (string, error) {
+		return english, nil
+	})
+	h.engine.Log = func(string, ...any) {}
+
+	dry, err := h.engine.Plan(h.pairs(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Asked == 0 {
+		t.Fatal("the page planned no asks, so this proves nothing")
+	}
+	if dry.Added != dry.Asked {
+		t.Errorf("a dry plan of an empty queue said %d of %d pieces are new", dry.Added, dry.Asked)
+	}
+	stats, err := h.engine.Queue.Stats(queue.StageTranslate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Counts[queue.Pending] != 0 {
+		t.Fatalf("a dry plan queued %d jobs", stats.Counts[queue.Pending])
+	}
+
+	// And it is a dry run of the real thing, not a different count.
+	wet, err := h.engine.Plan(h.pairs(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wet.Added != dry.Added || wet.Asked != dry.Asked || wet.Files != dry.Files {
+		t.Errorf("dry plan %+v against the real one %+v", dry, wet)
+	}
+	if stats, err = h.engine.Queue.Stats(queue.StageTranslate); err != nil {
+		t.Fatal(err)
+	}
+	if stats.Counts[queue.Pending] != wet.Added {
+		t.Errorf("the real plan reported %d added and queued %d", wet.Added, stats.Counts[queue.Pending])
+	}
+
+	// A dry plan over a queue that is already full reports nothing new, which is
+	// the number that says whether starting a run would do anything.
+	if dry, err = h.engine.Plan(h.pairs(), true); err != nil {
+		t.Fatal(err)
+	}
+	if dry.Added != 0 {
+		t.Errorf("a dry plan over a full queue said %d pieces are new", dry.Added)
 	}
 }

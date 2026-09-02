@@ -208,13 +208,21 @@ type Plan struct {
 	// inline SVG charts.
 	Copied int
 	// Added is how many of the asked pieces were not already in the queue. A
-	// second plan over the same corpus adds nothing.
+	// second plan over the same corpus adds nothing. On a dry plan it is how
+	// many would have been added, and nothing was.
 	Added int
 }
 
 // Plan cuts every file up and puts one job in the queue per piece that needs a
 // call.
-func (e *Engine) Plan(pairs []content.Pair) (Plan, error) {
+//
+// With dry set it counts and inserts nothing. That is what `godev translate
+// -plan` runs, and it has to be a separate path rather than a plan followed by a
+// drain: draining removes every pending job, including ones a previous run put
+// there on purpose, so a dry run that queued first would destroy work by asking
+// a question. The count of new pieces is the same either way, because Add's
+// answer is Has's answer.
+func (e *Engine) Plan(pairs []content.Pair, dry bool) (Plan, error) {
 	var p Plan
 	for _, pair := range pairs {
 		cut, err := e.chunks(pair.Rel)
@@ -235,8 +243,15 @@ func (e *Engine) Plan(pairs []content.Pair) (Plan, error) {
 			if err != nil {
 				return p, err
 			}
-			added, err := e.Queue.Add(queue.New(queue.StageTranslate,
-				Target(pair.Rel, c.Index), content.SHA256(c.Text), hash))
+			job := queue.New(queue.StageTranslate,
+				Target(pair.Rel, c.Index), content.SHA256(c.Text), hash)
+			if dry {
+				if !e.Queue.Has(job.Stage, job.ID) {
+					p.Added++
+				}
+				continue
+			}
+			added, err := e.Queue.Add(job)
 			if err != nil {
 				return p, err
 			}
