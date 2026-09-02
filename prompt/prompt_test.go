@@ -262,6 +262,41 @@ func TestTheHashIsTheInstructionsAndNotThePiece(t *testing.T) {
 	}
 }
 
+func TestTheSharedHalfIsTheSameOnEveryRequest(t *testing.T) {
+	// The system half is what the prompt cache key is derived from, and it is
+	// identical on all 2706 requests of a run. A per page sentence that leaked
+	// above the split line would make every one of them unique and turn the
+	// cache off with nothing failing to say so.
+	a := markdown("one page\n")
+	a.Rel, a.Index, a.Total, a.Heading = "ref/mod.md", 4, 60, "Module paths"
+	b := markdown("a different page entirely\n")
+	b.Rel, b.Kind = "doc/faq.md", content.KindMarkdown
+
+	first, firstInput, err := (Ask{Chunk: a, Glossary: "release  ->  bản phát hành"}).Messages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, secondInput, err := (Ask{Chunk: b}).Messages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Error("the shared half of the prompt differs between two requests")
+	}
+	if firstInput == secondInput {
+		t.Error("the per piece half is the same for two different pieces")
+	}
+	// And everything that is about one piece is below the line.
+	for _, leaked := range []string{"ref/mod.md", "piece 4 of 60", "Module paths", "bản phát hành"} {
+		if strings.Contains(first, leaked) {
+			t.Errorf("%q is in the shared half of the prompt", leaked)
+		}
+		if !strings.Contains(firstInput, leaked) {
+			t.Errorf("%q is in neither half of the prompt", leaked)
+		}
+	}
+}
+
 func TestBodyFindsNothingInSomethingThatIsNotARequest(t *testing.T) {
 	if _, ok := Body("just some text"); ok {
 		t.Error("found a source in a string with no fence in it")

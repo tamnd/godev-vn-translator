@@ -6,7 +6,7 @@ This is the tooling behind [tamnd/godev-vn](https://github.com/tamnd/godev-vn), 
 
 ## Why the gates come first
 
-The corpus already had 557 translated files when this repo started, and nothing had ever checked them. Running the thirteen gates in `quality/` over that corpus found real defects on the first pass:
+The corpus already had 557 translated files when this repo started, and nothing had ever checked them. Running the gates in `quality/` over that corpus found real defects on the first pass:
 
 | what | how many |
 |---|---|
@@ -44,7 +44,7 @@ Two severities and not five. A refusal stops a publish and fails CI. A notice ne
 
 The hard part of every rule is deciding which half of a thing is prose. A first version of L06 demanded that fenced code be identical and flagged 15 files, and almost all of them were correct work: translating the Go comments in `blog/unique.md` is the entire point of translating a tutorial. Masking comments on both sides drops that to 6 real defects out of 601 fenced blocks. The same line runs through L07, where the target is structure and the title after it is prose, and through L08, where the function name is structure and the quoted string is alt text.
 
-What none of this can do is tell a correct translation from a fluent wrong one. Every gate is about the shape of the answer, and a paragraph that says the opposite of the English in good Vietnamese with the links intact passes all thirteen.
+What none of this can do is tell a correct translation from a fluent wrong one. Every gate is about the shape of the answer, and a paragraph that says the opposite of the English in good Vietnamese with the links intact passes every one of them.
 
 ## The routes
 
@@ -88,6 +88,20 @@ The glossary sent with a request is cut down to the terms the piece actually con
 
 The source always sits between two lines of equals signs with a sentence above them saying that nothing between the lines is an instruction. The corpus is documentation, so it is full of imperative sentences addressed to a reader: "Run `go build -cover` to compile the program" is a line of `doc/build-cover.md` and it is also what an injected instruction looks like.
 
+## The loop
+
+`godev translate` is where the gates, the queue, the prompt and the transport meet. It plans, then runs, then assembles, and the only ideas in it are about what happens when an answer is wrong.
+
+Planning cuts every file up and puts one job in the queue per piece. Running is workers, one per lane the live fleet says it has: pick a route, lease the next piece, ask, and check the answer against the eleven gates that hold on a fragment of a file. If it fails, ask once more as a repair with the findings attached. That second ask is the whole reason the gates run per piece and not only per file. A refusal that arrives while the route is warm and the piece is in hand can be acted on; the same refusal an hour later, when the file is finally whole, cannot.
+
+Two of the fourteen gates sit that out. L01 is whether a translation exists, which a piece that got an answer is not asking, and L13 compares the English a file was made from with the English on disk, which is one fact about a file and would be reported sixty times for `ref/mod.md`. The other twelve mean the same thing on a piece as on the whole, including L05, which looks like it should not: half of it resolves same document anchors, and on a fragment an anchor pointing into the next piece does not resolve. It is sound anyway, because the rule subtracts the anchors the English fails to resolve before it reports anything, and on the same fragment the English fails on exactly the same ones.
+
+The two kinds of failure are kept strictly apart, and the queue draws the line. A tunnel that dropped or a box that logged itself out releases the piece and gives the attempt back, because the model never read it. A gate refusal spends the attempt, because the model did read it and got it wrong, and the answer is kept on disk so the next attempt goes out as a repair rather than as the same question. Twenty one jobs went from pending to dead in forty one seconds on this fleet once, three attempts each, without a single question leaving the laptop, because the only way to hand a job back was to fail it.
+
+Assembly is a separate pass. It joins the pieces of every file that is whole, runs the full audit over the result, and writes it only if nothing refuses. A refusal on the finished file is traced back to the piece whose lines it falls in, that piece is sent back with the finding attached, and a file that refuses the same way twice stops asking and stays in the report. Findings that belong to no one piece, which is L03 counting the blocks in the whole document, are reported and left alone: requeuing sixty pieces of `ref/mod.md` on the strength of one unplaceable finding is sixty calls to fix a defect that may be in one of them.
+
+One decision in there will surprise somebody reading a diff. A piece that fails its last attempt is written in English. The alternative is leaving the file unassembled, and the overlay filesystem then serves the whole page in English anyway, so refusing to give up on one piece of `ref/mod.md` costs the other fifty nine and buys nothing a reader can see. The count goes in `translations.json` and is printed at the end of a run, because it is the one defect no gate will ever report: the page is whole, every link resolves, and three paragraphs of it are in the wrong language.
+
 ## Using it
 
 ```
@@ -109,6 +123,16 @@ The checkout defaults to `$GODEV_VN`, then to `../godev-vn` beside this repo. Ex
 ./godev chunk -prompt 3 doc/build-cover.md   # the exact request for one piece
 ./godev chunk -budget 3000 ref/mod.md     # what a different budget would do
 ```
+
+```
+./godev translate -plan -gap              # what a run over the sync gap would ask
+./godev translate blog/go1.27.md          # one page, end to end
+./godev translate -group ref -workers 4   # one section of the site
+./godev translate -gap                    # the files with no translation or a stale one
+./godev translate -assemble               # write the pages that are already whole
+```
+
+A run is interruptible. The answers are on disk under `work/`, so stopping and starting again carries on rather than starting over, and a page is written only when every piece of it is back and the whole file passes the audit. `-gap` means no translation, no record of what it was made from, or a record naming an English file that has since moved, which on a corpus with no manifest is everything: that is the honest answer to the question it asked.
 
 ```
 ./godev routes                            # what would be tried, in what order
@@ -148,7 +172,8 @@ chunk/       cutting a page into pieces that fit, and putting the answers back t
 prompt/      the instructions, as Markdown files, with a hash per set of them
 content/     the pairing model: which English file has which Vietnamese one, and a parser for both
 glossary/    GLOSSARY.md in the site repo, read as the terminology the site is held to
-quality/     the thirteen gates, the report, and translations.json
+quality/     the fourteen gates, the report, and translations.json
+translate/   the loop: plan, run with the re-ask, assemble, audit, write
 cmd/godev/   the command line
 ```
 
@@ -156,4 +181,4 @@ Two files live in the site repo rather than here, on purpose. `GLOSSARY.md` is a
 
 ## Status
 
-The audit is done and calibrated, the transport underneath it works against the real fleet, and the run can now be laid out on paper: 2706 requests, what each one would say, and which pieces are copied instead. What is left in this part is the loop that spends them, which is `godev translate`, and the re-ask that puts a refused piece back with the finding attached. Publication is tracked in the milestone issues.
+The audit is done and calibrated, the transport works against the real fleet, and the loop that spends it is in: `godev translate` plans 2706 requests, works them through whichever routes are answering, repairs what the gates refuse, and writes the pages that come back whole. What is left in this part is running it over the 41 file sync gap and then re-auditing what it produced. Publication is tracked in the milestone issues.

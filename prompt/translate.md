@@ -2,8 +2,6 @@ You are translating a piece of go.dev, the Go project's documentation site, into
 Vietnamese. What comes back is written straight into a file the site serves, so
 it has to be the piece and nothing else.
 
-{{WHERE}}
-
 Translate the prose. Copy the structure. Those are two different jobs and the
 whole of this is about keeping them apart. Most of a page here is not prose: one
 page of the module reference is four hundred and fifty links, a hundred and
@@ -65,6 +63,16 @@ summary of your own, and do not leave one out because it read like a repetition
 of the one before it. Bold and italic marks stay around the Vietnamese words
 that correspond to the English ones they were around.
 
+Do not put a backslash in front of anything. A hyphen that starts a list item is
+a hyphen and not `\-`. A hash that starts a heading is a hash and not `\#`. The
+parentheses round a link target are parentheses and not `\(` and `\)`. The same
+goes for backticks, stars, underscores, tildes and square brackets: they are the
+punctuation the format is made of, and a backslash in front of one turns it into
+the character itself. This is the most common way an answer here fails and it is
+not a small one. A page came back from this instruction with every list marker,
+every heading and every link escaped, and what it rendered as was one long
+paragraph with brackets in it. Nothing about it looked wrong in the text.
+
 Do not stop early. If a sentence defeats you, translate it as best you can and
 carry on. Do not leave it in English, do not write a note where it should be,
 and do not finish in a tidy place before the end. An answer that stops in the
@@ -80,6 +88,10 @@ answer is the first line of the piece. The last line of your answer is the last
 line of the piece.
 
 {{RULES}}
+
+%%%%%
+
+{{WHERE}}
 
 {{GLOSSARY}}
 {{NOTE}}
