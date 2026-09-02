@@ -539,3 +539,78 @@ func TestPlanDry(t *testing.T) {
 		t.Errorf("a dry plan over a full queue said %d pieces are new", dry.Added)
 	}
 }
+
+// TestUnmangleUndoesTheTransport is the damage the browser routes do on the way
+// back, written as the pairs that were on disk in work/*/rejected when it was
+// found.
+func TestUnmangleUndoesTheTransport(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		english string
+		in      string
+		want    string
+	}{
+		{
+			"a link target autolinked inside its own link",
+			"See [race condition](https://en.wikipedia.org/wiki/Race_condition).",
+			"Xem [điều kiện tranh chấp]([https://en.wikipedia.org/wiki/Race_condition](https://en.wikipedia.org/wiki/Race_condition)).",
+			"Xem [điều kiện tranh chấp](https://en.wikipedia.org/wiki/Race_condition).",
+		},
+		{
+			// The shape only means damage when both halves are the same url. A
+			// link whose text is a different link is a thing a page can contain
+			// and there is no way to know what was meant.
+			"two different urls are left alone",
+			"See [a](https://a.example) and [b](https://b.example).",
+			"Xem [x]([https://a.example](https://b.example)).",
+			"Xem [x]([https://a.example](https://b.example)).",
+		},
+		{
+			"backticks escaped in transit",
+			"Run `go install` first.",
+			"Chạy \\`go install\\` trước.",
+			"Chạy `go install` trước.",
+		},
+		{
+			"bold escaped in transit",
+			"This is **important**.",
+			"Đây là \\*\\*quan trọng\\*\\*.",
+			"Đây là **quan trọng**.",
+		},
+		{
+			// The English is the ground truth. blog/declaration-syntax.md is a
+			// post about syntax and escapes what it quotes, and an answer that
+			// escapes the same thing is right.
+			"an escape the English also writes stays",
+			`The \* here is literal.`,
+			`Dấu \* ở đây là ký tự thường.`,
+			`Dấu \* ở đây là ký tự thường.`,
+		},
+		{
+			"a backslash in front of a letter is not an escape",
+			"strings.Split(s, \"\\n\")",
+			"strings.Split(s, \"\\n\")",
+			"strings.Split(s, \"\\n\")",
+		},
+		{
+			// Both defects at once, which is the common case and the reason the
+			// backslashes come off first.
+			"an escaped self link",
+			"See [docs](https://go.dev/doc).",
+			"Xem [tài liệu]\\([https://go.dev/doc]\\(https://go.dev/doc\\)\\).",
+			"Xem [tài liệu](https://go.dev/doc).",
+		},
+		{
+			"an answer with nothing wrong with it is untouched",
+			"See [the docs](/doc/) for **more**.",
+			"Xem [tài liệu](/doc/) để biết **thêm**.",
+			"Xem [tài liệu](/doc/) để biết **thêm**.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := unmangle(tt.in, tt.english); got != tt.want {
+				t.Errorf("unmangle\n got %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
