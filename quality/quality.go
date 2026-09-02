@@ -170,6 +170,32 @@ func ChunkRules() []Rule {
 	return out
 }
 
+// FreshRules are the gates that hold on a file the run has just produced.
+//
+// All of them but L13, and L13 is left out because it cannot be answered yet.
+// It compares the English a translation was recorded as made from with the
+// English on disk, and a file coming out of assembly has no current record: the
+// record is written from that same English immediately after the file is, and
+// until then the record on disk is whatever the last translation left there.
+//
+// Running it at assembly deadlocks the run. The refusal blocks the write, the
+// write is what updates the record, and the record is what the refusal is
+// about, so the file refuses again on the next attempt for the same reason and
+// stops asking. That is not a hypothetical: the 32 files the upstream sync
+// moved were retranslated, assembled, refused on L13 alone with nothing traced
+// to any piece, and left unwritten, which is the one outcome the whole run
+// existed to avoid.
+func FreshRules() []Rule {
+	var out []Rule
+	for _, rule := range Rules() {
+		if rule.ID == ruleStale.ID {
+			continue
+		}
+		out = append(out, rule)
+	}
+	return out
+}
+
 func (r Rule) applies(kind content.Kind) bool {
 	return len(r.Kinds) == 0 || slices.Contains(r.Kinds, kind)
 }
@@ -182,6 +208,9 @@ func Audit(in Input) []Finding { return run(in, Rules()) }
 // The caller puts the piece's English in EN and the answer in VI, and gets
 // findings whose Line is counted from the start of the piece.
 func AuditChunk(in Input) []Finding { return run(in, ChunkRules()) }
+
+// AuditFresh runs the rules that hold on a file the run has just assembled.
+func AuditFresh(in Input) []Finding { return run(in, FreshRules()) }
 
 func run(in Input, rules []Rule) []Finding {
 	in.ENDoc = content.Parse(in.Pair.Kind, in.EN)

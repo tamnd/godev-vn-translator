@@ -89,7 +89,7 @@ func (e *Engine) Assemble(pairs []content.Pair) (Assembly, error) {
 		if err != nil {
 			return out, err
 		}
-		findings := quality.Audit(quality.Input{
+		findings := quality.AuditFresh(quality.Input{
 			Pair: pair, EN: english, VI: text,
 			Glossary: glossary, Manifest: manifest,
 		})
