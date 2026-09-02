@@ -91,7 +91,22 @@ The checkout defaults to `$GODEV_VN`, then to `../godev-vn` beside this repo. Ex
 
 With no route file the built in registry is used, which is the fleet as measured. Write it out with `-write` to edit it. The file is not in this repo and never will be: it names hosts, and in its literal key form it carries a credential. The key itself is read from `GODEV_PROXY_KEY`, then from `BOURBAKI_PROXY_KEY` for a machine already set up for the fleet, then from `~/.config/godev/env` or `~/.config/bourbaki/env`, because that last file is where the key already lives and a shell that has not sourced it otherwise gets a 401 that reads like a rejected key rather than a missing one.
 
+```
+./godev queue stats                       # what is pending, leased, done, dead
+./godev queue reap                        # give back the jobs whose worker died
+./godev queue list -state dead            # and why each one died, every attempt
+./godev queue retry                       # after fixing whatever was breaking them
+```
+
 `doctor` is shallow by default. A box answers `GET /v1/health` in milliseconds with the size of its session pool, which is the thing that actually goes wrong: the sessions log themselves out, the host stays up, and every call it takes comes back with a refusal that looks like a model failure. Asking a real question costs two to ten minutes per box, which is fine once and useless as a guard.
+
+## The work list
+
+At two to ten minutes a call, nothing worth doing fits in one process lifetime. The corpus is 680 files and the long ones run to a hundred and seventy chunks each, so a full run is hours. Laptops sleep, tunnels drop, and somebody will hit Ctrl-C. So the state of the work lives in files under `work/`, one per job, and any process can pick up where the last one stopped.
+
+Four rules hold it together. Leases and not locks, so a worker that dies holds nothing and its jobs come back when the lease expires. Content addressed ids, so running the same plan again produces the same job names and the work already done is skipped by the file being there. One side effect per job, written by temp file and rename, so a job that dies halfway leaves either the old output or the new one and never half of either. And bounded attempts, three by default, after which the job is dead and something has to name it, because a chunk that silently retries forever never reaches `_content_vi` and never appears in a report either. The English still renders through the overlay, so nobody notices on the site.
+
+This package came from [tamnd/bourbaki-solver](https://github.com/tamnd/bourbaki-solver), where it drove several thousand model calls through this same fleet. Every rule in it has an incident behind it and the comments say which, including the morning the disk filled and 25 held leases sat there for an hour, and the prompt rewrite after which 1380 pending jobs stood for 837 distinct chunks. Those happened there and the comments say so. They are kept because the failure modes belong to the fleet rather than to that corpus, and the glossary here is edited in pull requests, so the superseded work problem will come up more often and not less.
 
 ## Layout
 
@@ -99,6 +114,7 @@ With no route file the built in registry is used, which is the fleet as measured
 api/         the OpenAI chat completions wire, streaming, with usage and a prompt cache key
 route/       the registry, the health prober, and the pool that fails over between them
 codex/       the local subscription, reached by running the CLI and reading what it prints
+queue/       the durable work list: leases, content addressed ids, bounded attempts
 content/     the pairing model: which English file has which Vietnamese one, and a parser for both
 glossary/    GLOSSARY.md in the site repo, read as the terminology the site is held to
 quality/     the thirteen gates, the report, and translations.json
