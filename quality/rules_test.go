@@ -238,7 +238,8 @@ func TestStale(t *testing.T) {
 
 	// No record at all is a gap in the manifest, not a defect in the file, so
 	// it is a notice. The corpus predates the manifest and would otherwise open
-	// with 654 refusals.
+	// with 654 refusals. After the backfill the files still in this state are
+	// the 97 copies, which have no translation to have a record of.
 	got := ruleStale.Check(in)
 	if len(got) != 1 || got[0].Severity != Notice {
 		t.Fatalf("a file with no record must give one notice, got %#v", got)

@@ -135,7 +135,21 @@ The checkout defaults to `$GODEV_VN`, then to `../godev-vn` beside this repo. Ex
 ./godev translate -assemble               # write the pages that are already whole
 ```
 
-A run is interruptible. The answers are on disk under `work/`, so stopping and starting again carries on rather than starting over, and a page is written only when every piece of it is back and the whole file passes the audit. `-gap` means no translation, no record of what it was made from, or a record naming an English file that has since moved, which on a corpus with no manifest is everything: that is the honest answer to the question it asked.
+A run is interruptible. The answers are on disk under `work/`, so stopping and starting again carries on rather than starting over, and a page is written only when every piece of it is back and the whole file passes the audit. `-gap` means no translation, no record of what it was made from, or a record naming an English file that has since moved.
+
+On a corpus with no manifest that was every file, which was the honest answer to the question and not a useful one. The backfill is what turned it into a list.
+
+```
+./godev backfill -n                       # what it would record, and from which commit
+./godev backfill                          # write it
+./godev backfill -force                   # overwrite records that are already there
+```
+
+557 of the 558 translations here were written by hand over a year, before there was anywhere to record what they were made from. The information was in git rather than in the files: the commit that last touched a Vietnamese file is when that translation was current, and the English at that commit is what it was made from. That is a claim about history and `git show` checks it.
+
+It is wrong in one narrow direction and right in the direction that matters. A translation committed some days after it was written, with the English moving in between, comes out recorded as newer than it is. The alternative is stamping today's English on all 557, which marks the 32 files the upstream sync just invalidated as current and throws away the only signal there is.
+
+L13 went from 654 findings to 129. 97 of those are files whose Vietnamese is byte for byte the English, which are copies rather than translations and are left without a record on purpose, and L02 reports every one of them already. The other 32 refuse, and they are exactly the 32 files the sync modified, with nothing outside the sync named. Route, model and prompt hash are left empty on a backfilled record, because a translation made by hand was not asked for under any instructions this tool knows and an empty field says so without inventing a value.
 
 ```
 ./godev routes                            # what would be tried, in what order
