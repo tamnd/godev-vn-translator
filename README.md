@@ -39,8 +39,11 @@ Every rule in `quality/rules.go` was written against a named file on disk and it
 | L11 | language | refuse | the proportion of tone marked letters in the prose |
 | L12 | commentary | refuse | a covering note or a fence wrapped around the whole answer |
 | L13 | stale | refuse | the SHA-256 of the English the translation was made from |
+| L14 | escaping | refuse | backslashes in front of Markdown punctuation, counted per mark against the English |
 
 Two severities and not five. A refusal stops a publish and fails CI. A notice never does, because there are hundreds of them and a gate that is always red is a gate that gets a `--no-verify`.
+
+L14 is the odd one out. Every other rule was written against a defect a person left behind, and L14 was written against one this tool produced: the first page it translated end to end came back with every list marker, every heading and every link target behind a backslash, and what it rendered as was one long paragraph with brackets in it. The comparison is per punctuation mark against the English rather than against zero, because the English legitimately writes 166 escapes across 52 files and `doc/go_spec.html` needs every one of its own.
 
 The hard part of every rule is deciding which half of a thing is prose. A first version of L06 demanded that fenced code be identical and flagged 15 files, and almost all of them were correct work: translating the Go comments in `blog/unique.md` is the entire point of translating a tutorial. Masking comments on both sides drops that to 6 real defects out of 601 fenced blocks. The same line runs through L07, where the target is structure and the title after it is prose, and through L08, where the function name is structure and the quoted string is alt text.
 
@@ -92,7 +95,7 @@ The source always sits between two lines of equals signs with a sentence above t
 
 `godev translate` is where the gates, the queue, the prompt and the transport meet. It plans, then runs, then assembles, and the only ideas in it are about what happens when an answer is wrong.
 
-Planning cuts every file up and puts one job in the queue per piece. Running is workers, one per lane the live fleet says it has: pick a route, lease the next piece, ask, and check the answer against the eleven gates that hold on a fragment of a file. If it fails, ask once more as a repair with the findings attached. That second ask is the whole reason the gates run per piece and not only per file. A refusal that arrives while the route is warm and the piece is in hand can be acted on; the same refusal an hour later, when the file is finally whole, cannot.
+Planning cuts every file up and puts one job in the queue per piece. Running is workers, one per lane the live fleet says it has: pick a route, lease the next piece, ask, and check the answer against the twelve gates that hold on a fragment of a file. If it fails, ask once more as a repair with the findings attached. That second ask is the whole reason the gates run per piece and not only per file. A refusal that arrives while the route is warm and the piece is in hand can be acted on; the same refusal an hour later, when the file is finally whole, cannot.
 
 Two of the fourteen gates sit that out. L01 is whether a translation exists, which a piece that got an answer is not asking, and L13 compares the English a file was made from with the English on disk, which is one fact about a file and would be reported sixty times for `ref/mod.md`. The other twelve mean the same thing on a piece as on the whole, including L05, which looks like it should not: half of it resolves same document anchors, and on a fragment an anchor pointing into the next piece does not resolve. It is sound anyway, because the rule subtracts the anchors the English fails to resolve before it reports anything, and on the same fragment the English fails on exactly the same ones.
 
