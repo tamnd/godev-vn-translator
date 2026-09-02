@@ -274,6 +274,38 @@ func TestTerminologyLongerTerm(t *testing.T) {
 	}
 }
 
+// TestTerminologyGloss is the convention where the Vietnamese comes first and
+// the English follows in parentheses, which is how a Vietnamese technical page
+// introduces a term and is not a term left standing.
+func TestTerminologyGloss(t *testing.T) {
+	g := glossary.Parse("| soft memory limit | giới hạn bộ nhớ mềm | |\n")
+	run := func(vi string) []Finding {
+		en := "Go 1.19 adds support for a soft memory limit"
+		return ruleTerminology.Check(Input{
+			Pair: content.Pair{Rel: "t.md", Kind: content.KindMarkdown},
+			EN:   en, VI: vi,
+			ENDoc: content.Parse(content.KindMarkdown, en), VIDoc: content.Parse(content.KindMarkdown, vi),
+			Glossary: g,
+		})
+	}
+
+	if got := run("hỗ trợ giới hạn bộ nhớ mềm (soft memory limit)"); len(got) != 0 {
+		t.Errorf("the English in parentheses after its own Vietnamese must be silent, got %d: %v", len(got), got)
+	}
+	if got := run("hỗ trợ soft memory limit"); len(got) != 1 {
+		t.Errorf("the English on its own must be reported, got %d: %v", len(got), got)
+	}
+	// Parentheses alone are not a gloss. The Vietnamese has to be there.
+	if got := run("hỗ trợ tính năng mới (soft memory limit)"); len(got) != 1 {
+		t.Errorf("parentheses without the Vietnamese must be reported, got %d: %v", len(got), got)
+	}
+	// The Vietnamese a paragraph earlier is not the same breath.
+	far := "giới hạn bộ nhớ mềm " + strings.Repeat("và các thay đổi khác. ", 6) + "(soft memory limit)"
+	if got := run(far); len(got) != 1 {
+		t.Errorf("the Vietnamese too far back must be reported, got %d: %v", len(got), got)
+	}
+}
+
 func TestLanguage(t *testing.T) {
 	ascii := strings.Repeat("this is english prose that was never translated. ", 10)
 	count(t, ruleLanguage, ascii, ascii, 1)

@@ -610,7 +610,7 @@ var ruleTerminology = Rule{
 			if t.KeepsEnglish() {
 				continue
 			}
-			if !leftInEnglish(answer, t.EN, in.Glossary) {
+			if !leftInEnglish(answer, t, in.Glossary) {
 				continue
 			}
 			out = append(out, Finding{Msg: fmt.Sprintf(
@@ -636,24 +636,80 @@ var ruleTerminology = Rule{
 // The occurrences are checked one at a time rather than the file as a whole,
 // because a page that says "release candidate" once and leaves a bare "release"
 // standing elsewhere is still worth a notice.
-func leftInEnglish(answer, term string, g *glossary.Glossary) bool {
-	spans := wordSpans(answer, term)
+func leftInEnglish(answer string, t glossary.Term, g *glossary.Glossary) bool {
+	spans := wordSpans(answer, t.EN)
 	if len(spans) == 0 {
 		return false
 	}
 	var kept [][2]int
 	for _, u := range g.Terms {
-		if !u.KeepsEnglish() || len(u.EN) <= len(term) {
+		if !u.KeepsEnglish() || len(u.EN) <= len(t.EN) {
 			continue
 		}
 		kept = append(kept, wordSpans(answer, u.EN)...)
 	}
+	runes := []rune(strings.ToLower(answer))
 	for _, s := range spans {
-		if !within(s, kept) {
-			return true
+		if within(s, kept) || glossed(runes, s, t.VI) {
+			continue
 		}
+		return true
 	}
 	return false
+}
+
+// glossWindow is how far either side of a parenthesis this looks, in runes. It
+// is the length of a clause and not of a paragraph, because the point is that
+// the two say the same thing in the same breath.
+const glossWindow = 60
+
+// glossed reports whether this occurrence is the English handed to the reader in
+// parentheses directly after its own Vietnamese.
+//
+// That is not a term left in English, it is the convention Vietnamese technical
+// writing uses to introduce one, and go.dev's translators use it correctly:
+// "giới hạn bộ nhớ mềm (soft memory limit)" in doc/go1.19.md and "chuyển hướng
+// dấu gạch chéo theo sau (trailing slash redirect)" in doc/go1.26.md. A reader
+// who only knows the English name can find the section, and a reader who only
+// knows the Vietnamese is not made to read English. Reporting it teaches people
+// to delete the helpful half.
+//
+// The test is deliberately narrow. The occurrence has to be inside one pair of
+// parentheses, and the glossary's own Vietnamese has to be sitting within a
+// clause of the opening one. A page that writes the English on its own, or that
+// writes it in parentheses after something else, is still reported.
+func glossed(runes []rune, s [2]int, vi string) bool {
+	open := -1
+	for i := s[0] - 1; i >= 0 && s[0]-i <= glossWindow; i-- {
+		if runes[i] == ')' {
+			return false
+		}
+		if runes[i] == '(' {
+			open = i
+			break
+		}
+	}
+	if open < 0 {
+		return false
+	}
+	shut := false
+	for i := s[1]; i < len(runes) && i-s[1] <= glossWindow; i++ {
+		if runes[i] == '(' {
+			return false
+		}
+		if runes[i] == ')' {
+			shut = true
+			break
+		}
+	}
+	if !shut {
+		return false
+	}
+	lo := open - glossWindow
+	if lo < 0 {
+		lo = 0
+	}
+	return strings.Contains(string(runes[lo:open]), strings.ToLower(strings.TrimSpace(vi)))
 }
 
 func within(s [2]int, spans [][2]int) bool {
