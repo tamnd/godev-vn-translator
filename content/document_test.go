@@ -89,3 +89,55 @@ func TestLinksOf(t *testing.T) {
 		})
 	}
 }
+
+// The comment extractor has two jobs beyond finding <!-- -->: it must not count
+// the site's own page metadata, which is written as a comment and is the one
+// comment on the site that gets translated, and it must not count a comment
+// written inside an example.
+func TestComments(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{
+			name: "a plain comment",
+			body: "<!-- CL 29072 -->\ntext\n",
+			want: []string{" CL 29072 "},
+		},
+		{
+			name: "html page metadata is not a comment",
+			body: "<!--{\n\t\"Title\": \"Tải xuống\"\n}-->\n\n<p>text</p>\n<!-- for consistent spacing -->\n",
+			want: []string{" for consistent spacing "},
+		},
+		{
+			name: "it spans lines",
+			body: "<!-- one\ntwo -->\n",
+			want: []string{" one\ntwo "},
+		},
+		{
+			name: "a comment inside a fence does not count",
+			body: "<!-- a -->\n```html\n<!-- b -->\n```\n<!-- c -->\n",
+			want: []string{" a ", " c "},
+		},
+		{
+			name: "two on one line",
+			body: "<b>a</b><!-- x --><b>b</b><!-- y -->",
+			want: []string{" x ", " y "},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := comments(c.body)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %d comments, want %d: %q", len(got), len(c.want), got)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("comment %d = %q, want %q", i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}

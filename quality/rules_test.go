@@ -336,3 +336,55 @@ func TestSeverityIsADefault(t *testing.T) {
 		t.Fatalf("severity is a default, not an override: %#v", got)
 	}
 }
+
+func TestComments(t *testing.T) {
+	// The release notes shape. A bullet under its CL reference, and the
+	// Vietnamese bullet with the reference gone.
+	en := "<!-- CL 29072 -->\nThe Transport now supports IDNA.\n"
+	count(t, ruleComments, en, "<!-- CL 29072 -->\nTransport giờ hỗ trợ IDNA.\n", 0)
+	got := count(t, ruleComments, en, "Transport giờ hỗ trợ IDNA.\n", 1)
+	if len(got) == 1 && !strings.Contains(got[0].Msg, "CL 29072") {
+		t.Errorf("the finding must name the comment that went missing, got %q", got[0].Msg)
+	}
+
+	// doc/go1.20.md has 200 comments and lost one. The rule has to find that
+	// one and say which, not report that a count moved.
+	var enMany, viMany strings.Builder
+	for i := range 20 {
+		enMany.WriteString("<!-- CL " + string(rune('a'+i)) + " -->\nline\n\n")
+		if i != 7 {
+			viMany.WriteString("<!-- CL " + string(rune('a'+i)) + " -->\n")
+		}
+		viMany.WriteString("dòng\n\n")
+	}
+	got = count(t, ruleComments, enMany.String(), viMany.String(), 1)
+	if len(got) == 1 && !strings.Contains(got[0].Msg, "CL h") {
+		t.Errorf("got %q, want the one that is gone", got[0].Msg)
+	}
+
+	// Only the count opens the door. blog/inliner.md and doc/toolchain.md keep
+	// every comment and differ in curly quotes against straight ones, and
+	// doc/modules/gomod-ref.md translated a note addressed to whoever edits the
+	// file next, which is better in Vietnamese. None of those is a defect.
+	count(t, ruleComments,
+		"<!-- we can’t type-check the “result” -->\ntext\n",
+		"<!-- we can't type-check the \"result\" -->\nvăn bản\n", 0)
+	count(t, ruleComments,
+		"<!-- If you update this list, also update /ref/mod. -->\ntext\n",
+		"<!-- Nếu bạn cập nhật danh sách này, hãy cập nhật cả /ref/mod. -->\nvăn bản\n", 0)
+
+	// A comment the translation added is not a defect either.
+	// doc/tutorial/generics.md has two where the English has one.
+	count(t, ruleComments, "<!-- a -->\ntext\n", "<!-- a -->\n<!-- b -->\nvăn bản\n", 0)
+
+	// The `.html` pages write `<!-- for consistent spacing -->` between inline
+	// elements, four times across the two install pages, and the Vietnamese has
+	// none. Four of the same comment is four findings and not one.
+	count(t, ruleComments,
+		"<b>a</b><!-- for consistent spacing --><b>b</b><!-- for consistent spacing -->\n",
+		"<b>a</b><b>b</b>\n", 2)
+
+	// The line breaks inside a comment move when the text around it is
+	// rewrapped, and they carry nothing.
+	count(t, ruleComments, "<!-- one\n  two -->\ntext\n", "<!-- one two -->\nvăn bản\n", 0)
+}

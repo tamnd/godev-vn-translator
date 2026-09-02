@@ -60,7 +60,7 @@ const (
 
 // A Finding is one way a file falls short.
 type Finding struct {
-	// Rule is the identifier, L01 to L13. It is stable, it is what a report
+	// Rule is the identifier, L01 to L15. It is stable, it is what a report
 	// groups by, and it is what a commit message cites.
 	Rule string
 	// Name is the rule in a word, because the number means nothing to somebody
@@ -104,8 +104,8 @@ type Input struct {
 	// translation, which only L01 is expected to have an opinion about.
 	EN, VI string
 	// ENDoc and VIDoc are the parsed forms, computed once and shared, because
-	// twelve of the fourteen rules want them and parsing 480 files fourteen
-	// times over is fourteen times the work for the same answer.
+	// ten of the fifteen rules want them and parsing 480 files fifteen times
+	// over is fifteen times the work for the same answer.
 	ENDoc, VIDoc content.Document
 	// Glossary is the terminology the translation is held to. Nil disables L10
 	// rather than failing, so a checkout with no GLOSSARY.md still audits.
@@ -132,13 +132,14 @@ func Rules() []Rule {
 		ruleCommentary,
 		ruleStale,
 		ruleEscaping,
+		ruleComments,
 	}
 }
 
 // ChunkRules are the gates that mean the same thing on a piece of a file as
 // they do on the whole of it.
 //
-// Twelve of the fourteen do. They compare a sequence pulled out of the English
+// Thirteen of the fifteen do. They compare a sequence pulled out of the English
 // with the same sequence pulled out of the Vietnamese, and a piece of a file
 // has those sequences too. Running them on the piece rather than waiting for
 // the finished file is what makes a refusal actionable: the run knows which
@@ -191,7 +192,7 @@ func run(in Input, rules []Rule) []Finding {
 			continue
 		}
 		// A rule other than L01 has nothing to say about a file that is not
-		// there. Running them anyway produces fourteen findings per missing
+		// there. Running them anyway produces fifteen findings per missing
 		// file, which buries the one that matters.
 		if in.VI == "" && rule.ID != rulePresence.ID {
 			continue

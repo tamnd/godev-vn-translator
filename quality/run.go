@@ -17,7 +17,7 @@ func Run(root string) (Report, error) {
 	g, err := glossary.Load(root)
 	if err != nil {
 		// A checkout with an unreadable glossary still audits, with L10 off.
-		// Twelve rules working is better than none, and the CLI says so.
+		// Fourteen rules working is better than none, and the CLI says so.
 		g = nil
 	}
 	manifest, err := LoadManifest(root)
