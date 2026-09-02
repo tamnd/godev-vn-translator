@@ -26,6 +26,11 @@ func Prose(text string) string {
 	text = htmlCommentRE.ReplaceAllString(text, " ")
 	text = styleRE.ReplaceAllString(text, " ")
 	text = scriptRE.ReplaceAllString(text, " ")
+	// present links go before Markdown ones. `[[url][text]]` is how a .slide and
+	// an .article write a link, and the Markdown expression cannot see it because
+	// there is no parenthesis in it. The corpus has 401 of them across 56 files,
+	// so leaving them in put every one of those urls into the prose.
+	text = presentLinkRE.ReplaceAllString(text, "$2")
 	// A link keeps its text and loses its target. The title after the target is
 	// prose and is kept, which is what makes ref/mod.md's "Nâng cấp MVS" count.
 	text = linkTargetRE.ReplaceAllString(text, "$1 $2")
@@ -50,14 +55,18 @@ var (
 	// there is nothing in it to translate, and it was the only L11 refusal on the
 	// corpus. Two expressions rather than one because RE2 has no backreference to
 	// match the closing tag against the opening one.
-	styleRE      = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
-	scriptRE     = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>`)
-	linkTargetRE = regexp.MustCompile(`\[([^\]]*)\]\([^\s)]*\s*(?:"([^"]*)")?\s*\)`)
-	imageRE      = regexp.MustCompile(`!\[[^\]]*\]`)
-	autolinkRE   = regexp.MustCompile(`<https?://[^>]*>|\bhttps?://\S+`)
-	inlineCodeRE = regexp.MustCompile("`[^`]*`")
-	htmlTagRE    = regexp.MustCompile(`(?s)<[^>]+>`)
-	attrBlockRE  = regexp.MustCompile(`\{[#.][^}]*\}`)
+	styleRE  = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
+	scriptRE = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>`)
+	// The label is optional because present says it is: `[[url]]` renders the url
+	// as its own text. There is nothing to keep in that case, which is the same
+	// answer autolinkRE gives for the Markdown spelling of it.
+	presentLinkRE = regexp.MustCompile(`\[\[([^\[\]\s]*)\](?:\[([^\[\]]*)\])?\]`)
+	linkTargetRE  = regexp.MustCompile(`\[([^\]]*)\]\([^\s)]*\s*(?:"([^"]*)")?\s*\)`)
+	imageRE       = regexp.MustCompile(`!\[[^\]]*\]`)
+	autolinkRE    = regexp.MustCompile(`<https?://[^>]*>|\bhttps?://\S+`)
+	inlineCodeRE  = regexp.MustCompile("`[^`]*`")
+	htmlTagRE     = regexp.MustCompile(`(?s)<[^>]+>`)
+	attrBlockRE   = regexp.MustCompile(`\{[#.][^}]*\}`)
 )
 
 func stripFrontMatter(text string) string {

@@ -32,6 +32,16 @@ func TestProse(t *testing.T) {
 			`Xem [MVS](/doc/mvs/upgrade.svg "Nâng cấp MVS").`,
 			"Xem MVS Nâng cấp MVS.",
 		},
+		{
+			"a present link keeps its text and loses its target",
+			"Xem [[/wiki/Go-1.6-release-party][tiệc phát hành]] ở đây.",
+			"Xem tiệc phát hành ở đây.",
+		},
+		{
+			"a present link with no label has nothing to keep",
+			"Xem [[https://go.dev/doc/devel/release]] ở đây.",
+			"Xem ở đây.",
+		},
 		{"inline code is not prose", "Chạy `go install` trước.", "Chạy trước."},
 		{
 			"a template action is not prose",
