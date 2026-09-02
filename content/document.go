@@ -177,20 +177,60 @@ func headings(body string) []Heading {
 // that follows it.
 var linkRE = regexp.MustCompile(`(!?)\[([^\]]*)\]\(\s*([^\s)]*)\s*(?:"([^"]*)")?\s*\)`)
 
+// linksOf reads the whole body at once rather than a line at a time, because
+// the link text is allowed to wrap.
+//
+// doc/security/vuln/cna.md is where that turned up. The English writes
+// `[standard library](/pkg)` on one line and the Vietnamese writes
+//
+//	([thư viện
+//	chuẩn](/pkg) và
+//
+// which is the same link and renders the same, and a line at a time scan sees
+// neither half of it. So L07 reported a dropped link on a page that drops
+// nothing, and the repair prompt sent a model after a defect that was not
+// there. A gate that cries wolf is worse than no gate, because the answer to it
+// is to stop reading it.
+//
+// The prices of doing it this way are two. Fenced code has to be blanked out
+// rather than skipped, and it is blanked byte for byte so that the offsets stay
+// true and the reported line number is the line the link is really on. And the
+// target still may not contain a space, so it cannot wrap. That is correct:
+// Markdown does not allow it either.
 func linksOf(body string) []Link {
 	var out []Link
-	code := insideFence(body)
-	for i, line := range strings.Split(body, "\n") {
-		if code[i] {
-			continue
+	text := blankFences(body)
+	for _, m := range linkRE.FindAllStringSubmatchIndex(text, -1) {
+		at := func(i int) string {
+			if m[2*i] < 0 {
+				return ""
+			}
+			return text[m[2*i]:m[2*i+1]]
 		}
-		for _, m := range linkRE.FindAllStringSubmatch(line, -1) {
-			out = append(out, Link{
-				Image: m[1] == "!", Text: m[2], Target: m[3], Title: m[4], Line: i + 1,
-			})
-		}
+		out = append(out, Link{
+			Image:  at(1) == "!",
+			Text:   at(2),
+			Target: at(3),
+			Title:  at(4),
+			Line:   strings.Count(text[:m[0]], "\n") + 1,
+		})
 	}
 	return out
+}
+
+// blankFences replaces every byte of every fenced line with a space, keeping
+// the newlines. The result is the same length as the body, so an offset into it
+// is an offset into the body.
+func blankFences(body string) string {
+	code := insideFence(body)
+	lines := strings.Split(body, "\n")
+	for i := range lines {
+		if !code[i] {
+			continue
+		}
+		lines[i] = strings.Repeat(" ", len(lines[i]))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // blocks counts what the Markdown calls a block: runs of non-blank lines,
