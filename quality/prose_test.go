@@ -42,6 +42,11 @@ func TestProse(t *testing.T) {
 			"Xem [[https://go.dev/doc/devel/release]] ở đây.",
 			"Xem ở đây.",
 		},
+		{
+			"a pre body is not prose",
+			"<p>Trước.</p>\n<pre>\nremote: error: author email address\n</pre>\n<p>Sau.</p>",
+			"Trước. Sau.",
+		},
 		{"inline code is not prose", "Chạy `go install` trước.", "Chạy trước."},
 		{
 			"a template action is not prose",
