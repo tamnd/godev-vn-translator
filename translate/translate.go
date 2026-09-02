@@ -42,10 +42,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/tamnd/godev-vn-translator/api"
 	"github.com/tamnd/godev-vn-translator/chunk"
@@ -491,7 +493,7 @@ func (e *Engine) send(ctx context.Context, client api.Completer, value route.Rou
 	if err != nil {
 		return "", api.Usage{}, err
 	}
-	text := clean(response.Text)
+	text := unmangle(clean(response.Text), ask.Chunk.Text)
 	if strings.TrimSpace(text) == "" {
 		return "", response.Usage, errors.New("the route answered with nothing")
 	}
@@ -557,4 +559,71 @@ func clean(text string) string {
 		text = strings.TrimLeft(strings.TrimRight(inner, " \t\r\n"), "\r\n")
 	}
 	return text
+}
+
+// selfLinkRE matches a link target that came back as a Markdown link to itself,
+// `]([url](url))` where the page wrote `](url)`. The two urls are captured
+// separately and compared in Go, because RE2 has no backreference.
+var selfLinkRE = regexp.MustCompile(`\]\(\[([^\[\]()\s]+)\]\(([^\[\]()\s]+)\)\)`)
+
+// unmangle undoes what the transport does to an answer on the way back.
+//
+// This is not the model getting it wrong. Three of the four routes are a
+// headless browser driving chatgpt.com, so an answer is rendered to HTML by a
+// web application and converted back to Markdown by a scraper, and that round
+// trip is lossy in two ways that are always the same. Every rejected answer in
+// the work directory when this was written had at least one of them.
+//
+// A bare url in a link target comes back autolinked inside its own link, so
+// `](https://example.com)` arrives as `]([https://example.com](https://example.com))`.
+// Nobody writes that and no page contains it, the correct repair is the only
+// repair, and L07 was already printing it back with the fix in the message.
+//
+// The other is backslashes. The converter escapes punctuation on the way out,
+// so `x` arrives as `\`x\“ and `**bold**` as `\*\*bold\*\*`. Across the eight
+// rejected answers on disk when this was written it was 170 backticks, 36 open
+// parentheses, 30 angle brackets and 24 asterisks, and not one of them was
+// asked for.
+//
+// The English the piece was made from is the ground truth for how much escaping
+// the passage wants, because it is the same passage. Where the English never
+// writes \x, an answer that writes it wrote it in transit, and it comes off.
+// Where the English does write it, this leaves the answer alone and L14
+// decides, because choosing which of six backslashes to keep is a guess and the
+// point of clean below is that this code does not guess.
+//
+// Punctuation only, one character at a time. \n and \t inside a fenced Go
+// string are not escapes of anything and the letter test is what keeps them.
+//
+// The backslashes come off first. The converter escapes the brackets in the
+// wrapped link as readily as anything else, so a run that repaired the links
+// first would leave `\]\(\[url\]\(url\)\)` standing and then reveal it, and on
+// the eight answers on disk that is exactly what happened: thirty self linked
+// targets that the first ordering did not see.
+func unmangle(text, english string) string {
+	var b strings.Builder
+	runes := []rune(text)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '\\' && i+1 < len(runes) && addedInTransit(runes[i+1], english) {
+			continue
+		}
+		b.WriteRune(runes[i])
+	}
+	return selfLinkRE.ReplaceAllStringFunc(b.String(), func(m string) string {
+		g := selfLinkRE.FindStringSubmatch(m)
+		if g[1] != g[2] {
+			return m
+		}
+		return "](" + g[1] + ")"
+	})
+}
+
+// addedInTransit says whether a backslash in front of this character can only
+// have come from the converter, which is true when the character is punctuation
+// the English never escapes.
+func addedInTransit(r rune, english string) bool {
+	if r > unicode.MaxASCII || (!unicode.IsPunct(r) && !unicode.IsSymbol(r)) {
+		return false
+	}
+	return !strings.Contains(english, `\`+string(r))
 }
