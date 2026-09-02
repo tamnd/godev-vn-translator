@@ -148,6 +148,30 @@ func TestLinks(t *testing.T) {
 	count(t, ruleLinks, "[a](#top)\n", "[a](#dau-trang)\n", 0)
 }
 
+// The nesting blog/pkgsite-api.md#0002 died on three times. Still one refusal
+// per lost link, because it is the same defect, but the message has to name it
+// or the repair goes after the wrong thing.
+func TestLinksReportsANestedTarget(t *testing.T) {
+	en := "Since its inception, [pkg.go.dev](https://pkg.go.dev) has\n"
+	vi := "Kể từ khi ra mắt, [pkg.go.dev]([https://pkg.go.dev](https://pkg.go.dev)) đã\n"
+	got := check(t, ruleLinks, en, vi)
+	if len(got) != 1 {
+		t.Fatalf("want one finding, got %d: %#v", len(got), got)
+	}
+	for _, want := range []string{"wraps the target", "https://pkg.go.dev"} {
+		if !strings.Contains(got[0].Msg, want) {
+			t.Errorf("message %q does not mention %q", got[0].Msg, want)
+		}
+	}
+
+	// A link that is simply gone still reads as gone. The sharper message must
+	// not swallow the case it was not written for.
+	plain := check(t, ruleLinks, en, "Kể từ khi ra mắt, pkg.go.dev đã\n")
+	if len(plain) != 1 || !strings.Contains(plain[0].Msg, "drops the link") {
+		t.Errorf("a dropped link must still say so, got %#v", plain)
+	}
+}
+
 func TestActions(t *testing.T) {
 	// site.tmpl's alt text is prose and must be allowed to change.
 	en := `{{- $alt := "Go gophers with wrench"}}`

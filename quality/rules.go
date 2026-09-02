@@ -409,10 +409,18 @@ var ruleLinks = Rule{
 		for _, t := range vi {
 			viSet[t]++
 		}
+		nested := nestedTargets(vi)
 		var out []Finding
 		for _, t := range en {
 			if viSet[t] > 0 {
 				viSet[t]--
+				continue
+			}
+			if whole, ok := nested[t]; ok {
+				delete(nested, t)
+				out = append(out, Finding{Msg: fmt.Sprintf(
+					"wraps the target of the link to %s in a second link, `](%s)`, so the target is not a URL. Write `](%s)`",
+					t, whole, t)})
 				continue
 			}
 			out = append(out, Finding{Msg: fmt.Sprintf(
@@ -420,6 +428,45 @@ var ruleLinks = Rule{
 		}
 		return out
 	},
+}
+
+// nestedTargets are the link targets that are themselves a Markdown link.
+//
+// `[pkg.go.dev]([https://pkg.go.dev](https://pkg.go.dev))` is what a model does
+// to a sentence whose link text is a bare hostname: it reads the text as a URL
+// and links it a second time, inside the target slot of the first link. The
+// target then parses as `[https://pkg.go.dev](https://pkg.go.dev`, which is not
+// a URL, so the link is gone and L07 is right to refuse it.
+//
+// It is worth its own message because the ordinary one sends the wrong repair.
+// blog/pkgsite-api.md#0002 died on three attempts against "drops the link to
+// https://pkg.go.dev", which describes the symptom of a sentence rewritten
+// without its link and not this, and the model duly rewrote the sentence twice
+// and put the nesting straight back. A model cannot fix a defect it is not
+// told it made.
+//
+// Keyed by the URL that got swallowed, so the caller can look up a target it
+// already knows is missing. Only the innermost `](...)` is taken, because that
+// is the one carrying the real URL.
+func nestedTargets(vi []string) map[string]string {
+	out := map[string]string{}
+	for _, t := range vi {
+		if !strings.HasPrefix(t, "[") {
+			continue
+		}
+		open := strings.LastIndex(t, "](")
+		if open < 0 {
+			continue
+		}
+		inner := strings.TrimSuffix(t[open+2:], ")")
+		if inner == "" || strings.ContainsAny(inner, "[]") {
+			continue
+		}
+		if _, seen := out[inner]; !seen {
+			out[inner] = t
+		}
+	}
+	return out
 }
 
 // targets is the link targets that must survive, which is every one that is not
