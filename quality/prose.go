@@ -103,12 +103,23 @@ func stripFences(text string) string {
 // is Vietnamese, and a tone marked vowel is a letter that \b does not know
 // about.
 func containsWord(text, term string) bool {
+	return len(wordSpans(text, term)) > 0
+}
+
+// wordSpans is containsWord with the positions kept: every rune range in the
+// text where the term stands as a word.
+//
+// L10 needs the positions to tell an English word that belongs to the page from
+// one that belongs to a longer phrase. Ranges are rune indices into the
+// lowercased text, which is what containsWord already walks.
+func wordSpans(text, term string) [][2]int {
 	text, term = strings.ToLower(text), strings.ToLower(strings.TrimSpace(term))
 	if term == "" {
-		return false
+		return nil
 	}
 	runes := []rune(text)
 	t := []rune(term)
+	var out [][2]int
 	for i := 0; i+len(t) <= len(runes); i++ {
 		if string(runes[i:i+len(t)]) != term {
 			continue
@@ -119,9 +130,9 @@ func containsWord(text, term string) bool {
 		if i+len(t) < len(runes) && isWordRune(runes[i+len(t)]) {
 			continue
 		}
-		return true
+		out = append(out, [2]int{i, i + len(t)})
 	}
-	return false
+	return out
 }
 
 func isWordRune(r rune) bool {
