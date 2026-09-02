@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+      - name: vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+      - name: test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: coverage
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: build
+        run: go build ./...
+
+  # The gates run against the real corpus on every change to this repo, because
+  # a rule that is correct on its own fixtures and wrong on 680 files is a rule
+  # that gets turned off. The step reports and does not fail: the refusals it
+  # finds today are defects in the site and not in this pull request. It turns
+  # into a failing gate in the site repo, where it is the right place to block.
+  corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: tamnd/godev-vn
+          path: godev-vn
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: audit
+        run: go run ./cmd/godev -C godev-vn audit || true

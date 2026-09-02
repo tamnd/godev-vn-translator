@@ -1,0 +1,89 @@
+// Command godev translates go.dev into Vietnamese and refuses most of what
+// comes back.
+//
+// It works against a checkout of tamnd/godev-vn, which is the fork of
+// golang/website carrying _content in English and _content_vi in Vietnamese.
+// Point it at that checkout with -C or with GODEV_VN, and every subcommand
+// reads and writes files there.
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+const usage = `godev translates go.dev into Vietnamese.
+
+usage: godev [-C dir] <command> [flags]
+
+commands:
+  audit      run the quality gates over the checkout and report
+
+The checkout defaults to $GODEV_VN, then to ../godev-vn beside this repo.
+`
+
+func main() {
+	log := func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, format+"\n", args...)
+	}
+	root := flag.String("C", "", "the godev-vn checkout to work in")
+	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) == 0 {
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(2)
+	}
+
+	dir, err := checkout(*root)
+	if err != nil {
+		log("%v", err)
+		os.Exit(1)
+	}
+
+	cmd, rest := args[0], args[1:]
+	var runErr error
+	switch cmd {
+	case "audit":
+		runErr = runAudit(dir, rest)
+	case "help", "-h", "--help":
+		fmt.Fprint(os.Stderr, usage)
+		return
+	default:
+		log("unknown command %q", cmd)
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(2)
+	}
+	if runErr != nil {
+		log("%v", runErr)
+		os.Exit(1)
+	}
+}
+
+// checkout finds the site repo, and says what it tried when it cannot.
+func checkout(flagValue string) (string, error) {
+	candidates := []string{flagValue, os.Getenv("GODEV_VN")}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(wd, "..", "godev-vn"), wd)
+	}
+	var tried []string
+	for _, c := range candidates {
+		if strings.TrimSpace(c) == "" {
+			continue
+		}
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(abs, "_content")); err == nil && info.IsDir() {
+			return abs, nil
+		}
+		tried = append(tried, abs)
+	}
+	return "", fmt.Errorf("no godev-vn checkout found; set -C or GODEV_VN. Tried: %s",
+		strings.Join(tried, ", "))
+}

@@ -1,0 +1,12 @@
+# The work queue and everything under it is local state, not content.
+work/
+dist/
+
+# Reports are written by a run and committed deliberately, not by accident.
+reports/*.tmp
+
+# Route files hold host names and, in the literal-key form, a credential.
+routes.json
+
+.DS_Store
+docs/
