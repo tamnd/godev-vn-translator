@@ -46,6 +46,26 @@ The hard part of every rule is deciding which half of a thing is prose. A first 
 
 What none of this can do is tell a correct translation from a fluent wrong one. Every gate is about the shape of the answer, and a paragraph that says the opposite of the English in good Vietnamese with the links intact passes all thirteen.
 
+## The routes
+
+There are three ways to reach a model here and one wire between them. A command route runs the `codex` CLI against the subscription this machine is signed in to. A box route calls `chatgpt-tool serve` on server1, server2 or server3 through an ssh tunnel to the loopback. A gateway route calls a plain OpenAI compatible endpoint. All three answer `POST /v1/chat/completions`, streaming, so nothing above `route/` knows which one it got.
+
+Streaming is not decoration. A six thousand character chunk takes minutes to come back through a browser session, and a non streaming request holds a connection open with nothing on it for that whole time, which is the shape an idle timeout somewhere in the middle kills. The stream also carries the token usage on its last chunk, which is how a truncated answer gets noticed before it is written to a file.
+
+The pool tries routes in rank order, gives each one as many lanes as it can carry, and cools a route down when it fails. The cooldown depends on the cause, because the causes are not alike. A rejected key is not going to fix itself in thirty seconds. A daily limit that names its own reset instant is honoured to the minute rather than rounded up to the default.
+
+That last part is worth an example. A deep probe of the fleet on 2026-09-02 came back like this:
+
+```
+route    state     model                detail
+codex    quota     gpt-5.4              hit your usage limit, resets 2026-09-07 02:52 UTC
+server3  unknown   gpt-5                context canceled
+server2  live      gpt-5 -> gpt-5-mini  answered in 3m20s on gpt-5-mini, not gpt-5
+server1  quota     gpt-5                could not acquire a verified slot after 60s
+```
+
+Two things in there are the reason the deep probe exists. The subscription is spent for five days, and it says so in a sentence written for a person rather than in an error code, so it has to be read as prose. And server2 was asked for `gpt-5` and answered on `gpt-5-mini`. Neither the route file nor the model catalogue can see that, because both describe what is on offer and only the answer says what arrived. `gpt-5-mini` is the model that does not know the terminology, which is a large part of why the gates exist.
+
 ## Using it
 
 ```
@@ -61,9 +81,24 @@ The checkout defaults to `$GODEV_VN`, then to `../godev-vn` beside this repo. Ex
 ./godev audit -all                        # notices as well as refusals
 ```
 
+```
+./godev routes                            # what would be tried, in what order
+./godev routes -write ~/.config/godev/routes.json
+./godev doctor                            # is each route up, in milliseconds
+./godev doctor -deep                      # ask each route a real question
+./godev doctor -route server3             # one route only
+```
+
+With no route file the built in registry is used, which is the fleet as measured. Write it out with `-write` to edit it. The file is not in this repo and never will be: it names hosts, and in its literal key form it carries a credential. The key itself is read from `GODEV_PROXY_KEY`, then from `BOURBAKI_PROXY_KEY` for a machine already set up for the fleet, then from `~/.config/godev/env` or `~/.config/bourbaki/env`, because that last file is where the key already lives and a shell that has not sourced it otherwise gets a 401 that reads like a rejected key rather than a missing one.
+
+`doctor` is shallow by default. A box answers `GET /v1/health` in milliseconds with the size of its session pool, which is the thing that actually goes wrong: the sessions log themselves out, the host stays up, and every call it takes comes back with a refusal that looks like a model failure. Asking a real question costs two to ten minutes per box, which is fine once and useless as a guard.
+
 ## Layout
 
 ```
+api/         the OpenAI chat completions wire, streaming, with usage and a prompt cache key
+route/       the registry, the health prober, and the pool that fails over between them
+codex/       the local subscription, reached by running the CLI and reading what it prints
 content/     the pairing model: which English file has which Vietnamese one, and a parser for both
 glossary/    GLOSSARY.md in the site repo, read as the terminology the site is held to
 quality/     the thirteen gates, the report, and translations.json
@@ -74,4 +109,4 @@ Two files live in the site repo rather than here, on purpose. `GLOSSARY.md` is a
 
 ## Status
 
-The audit is done and calibrated. Translation, routing and publication are tracked in the milestone issues.
+The audit is done and calibrated, and the transport underneath it works against the real fleet. The queue, the prompt, the translation loop and publication are tracked in the milestone issues.

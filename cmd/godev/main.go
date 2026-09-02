@@ -8,11 +8,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 const usage = `godev translates go.dev into Vietnamese.
@@ -21,6 +24,8 @@ usage: godev [-C dir] <command> [flags]
 
 commands:
   audit      run the quality gates over the checkout and report
+  routes     list the model routes in the order they would be tried
+  doctor     probe every route and say which ones are answering
 
 The checkout defaults to $GODEV_VN, then to ../godev-vn beside this repo.
 `
@@ -39,17 +44,28 @@ func main() {
 		os.Exit(2)
 	}
 
-	dir, err := checkout(*root)
-	if err != nil {
-		log("%v", err)
-		os.Exit(1)
-	}
+	// Ctrl-C during a probe should stop the probe and print what came back, not
+	// leave three ssh tunnels holding a request each.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	cmd, rest := args[0], args[1:]
 	var runErr error
 	switch cmd {
 	case "audit":
+		// Only the commands that read the site need the site. Asking for a
+		// checkout before printing a route table would be a strange thing to
+		// fail on.
+		dir, err := checkout(*root)
+		if err != nil {
+			log("%v", err)
+			os.Exit(1)
+		}
 		runErr = runAudit(dir, rest)
+	case "routes":
+		runErr = runRoutes(rest)
+	case "doctor":
+		runErr = runDoctor(ctx, rest)
 	case "help", "-h", "--help":
 		fmt.Fprint(os.Stderr, usage)
 		return
