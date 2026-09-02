@@ -120,3 +120,36 @@ func TestProseWire(t *testing.T) {
 		t.Errorf("L11 refuses a page with no prose in it: %v", f)
 	}
 }
+
+func TestWordSpansBoundaries(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		text string
+		term string
+		want int
+	}{
+		{"a plain word", "bản release mới", "release", 1},
+		{"a word at the end of a sentence", "đây là một release.", "release", 1},
+		{"a word inside a longer word", "Google và Golang", "go", 0},
+
+		// The identifier cases. A term that touches a dot, a hyphen or a slash
+		// with more of a token on the other side is part of a name, and a name
+		// is not a sentence. Every one of these is on the corpus.
+		{"a dotted version tag", "xem release.2010-10-27 ở đây", "release", 0},
+		{"a git branch name", "nhánh release-branch.go1.4 hoặc", "release", 0},
+		{"a Go identifier", "Hàm http.Redirect thêm mã", "redirect", 0},
+		{"a url path", "url: /doc/devel/release", "release", 0},
+		{"a url fragment", "url: /wiki/#the-go-community", "community", 0},
+
+		// A trailing dot that ends a token rather than joining two is still the
+		// end of a word, and this is the case that keeps the rule useful.
+		{"a dot with nothing after it", "một release.", "release", 1},
+		{"a dot before a space", "một release. Câu sau", "release", 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := len(wordSpans(tt.text, tt.term)); got != tt.want {
+				t.Errorf("wordSpans(%q, %q) found %d, want %d", tt.text, tt.term, got, tt.want)
+			}
+		})
+	}
+}

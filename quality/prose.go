@@ -127,10 +127,7 @@ func wordSpans(text, term string) [][2]int {
 		if string(runes[i:i+len(t)]) != term {
 			continue
 		}
-		if i > 0 && isWordRune(runes[i-1]) {
-			continue
-		}
-		if i+len(t) < len(runes) && isWordRune(runes[i+len(t)]) {
+		if !boundedLeft(runes, i) || !boundedRight(runes, i+len(t)) {
 			continue
 		}
 		out = append(out, [2]int{i, i + len(t)})
@@ -140,4 +137,45 @@ func wordSpans(text, term string) [][2]int {
 
 func isWordRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// joins reports whether this character can hold two halves of one name
+// together. A dot, a hyphen and a slash do; a comma, a quote and a parenthesis
+// do not, because nobody puts those inside an identifier.
+func joins(r rune) bool {
+	return r == '.' || r == '-' || r == '/'
+}
+
+// boundedLeft and boundedRight say whether the term ends where it is, rather
+// than being the middle of something longer.
+//
+// A letter next to it is the easy case and is what a word boundary means
+// anywhere. The joiner is the case the corpus taught. `release.2010-10-27`,
+// `release-branch.go1.4`, `http.Redirect` and `/wiki/#the-go-community` are all
+// on the site, they are all a name and not a sentence, and every one of them was
+// being reported as a page that left a glossary term in English. A joiner with
+// more of a token on the other side of it means the term is a piece of a name.
+//
+// The joiner has to have something after it. A sentence ends in a full stop, and
+// "một release." is a page that left the word in English no matter what follows.
+// That is the difference between a dot that joins and a dot that terminates, and
+// it is the whole reason this is two functions rather than a character class.
+func boundedLeft(runes []rune, i int) bool {
+	if i == 0 {
+		return true
+	}
+	if isWordRune(runes[i-1]) {
+		return false
+	}
+	return !(joins(runes[i-1]) && i >= 2 && isWordRune(runes[i-2]))
+}
+
+func boundedRight(runes []rune, j int) bool {
+	if j == len(runes) {
+		return true
+	}
+	if isWordRune(runes[j]) {
+		return false
+	}
+	return !(joins(runes[j]) && j+1 < len(runes) && isWordRune(runes[j+1]))
 }
