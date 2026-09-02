@@ -25,6 +25,7 @@ usage: godev [-C dir] <command> [flags]
 commands:
   translate  translate the pages that need it and write the ones that pass
   audit      run the quality gates over the checkout and report
+  publish    export the site to a directory a static host can serve
   chunk      show how a page would be cut up, and what would be asked about it
   routes     list the model routes in the order they would be tried
   doctor     probe every route and say which ones are answering
@@ -56,7 +57,7 @@ func main() {
 	cmd, rest := args[0], args[1:]
 	var runErr error
 	switch cmd {
-	case "translate", "audit", "chunk", "queue", "backfill":
+	case "translate", "audit", "chunk", "queue", "backfill", "publish":
 		// Only the commands that work against the site need the site. Asking
 		// for a checkout before printing a route table would be a strange thing
 		// to fail on. The queue needs it because a work list is state about one
@@ -75,6 +76,8 @@ func main() {
 			runErr = runChunk(dir, rest)
 		case "backfill":
 			runErr = runBackfill(dir, rest)
+		case "publish":
+			runErr = runPublish(ctx, dir, rest)
 		default:
 			runErr = runQueue(dir, rest)
 		}
