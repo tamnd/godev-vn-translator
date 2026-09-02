@@ -66,6 +66,28 @@ server1  quota     gpt-5                could not acquire a verified slot after 
 
 Two things in there are the reason the deep probe exists. The subscription is spent for five days, and it says so in a sentence written for a person rather than in an error code, so it has to be read as prose. And server2 was asked for `gpt-5` and answered on `gpt-5-mini`. Neither the route file nor the model catalogue can see that, because both describe what is on offer and only the answer says what arrived. `gpt-5-mini` is the model that does not know the terminology, which is a large part of why the gates exist.
 
+## Cutting a page up
+
+Most pages go to a model whole. Half the blocks in the corpus are under 84 bytes and nine in ten are under 406, so a request is usually a page and the cutting never runs. The other end is where the work is: `ref/mod.md` is 221 KB, `doc/devel/weekly.html` is 301 KB, and `blog/survey2017/background.html` has one block in it of 43411 bytes.
+
+A cut has to land somewhere safe. Not inside a fenced code block, not inside an HTML `<pre>`, not through the middle of a template definition. `doc/effective_go.html` is the file that settles the second one: it has 148 `<pre>` blocks with 36 blank lines inside them, so a splitter that knows only about blank lines cuts 36 code samples in half. Two properties hold the rest up. Concatenating the pieces of a file gives that file back byte for byte, so reassembly is a join and never a merge. And a piece that is missing is an error rather than a gap, because a file assembled out of five answers when six were asked is exactly the silent truncation the corpus already has eight of.
+
+The front matter is always its own piece. It is a fixed set of keys in a fixed order with some values translated and some copied, which is a different question from translating a paragraph, and sending it inside the first body chunk is how 138 pages ended up carrying a `template: true` their English does not have.
+
+66 pieces are copied through rather than asked. They are the inline SVG charts in the 2016 and 2017 survey posts and in `blog/swisstable.md`, they come to 600733 bytes, and sending them to a model with an instruction to give them back unchanged would spend hours on the one job a copy does perfectly and give every one of them a chance to come back with a coordinate altered. The cost is that the axis and legend labels inside those charts stay in English: they sit at computed positions laid out for the English string, and a longer Vietnamese label runs off the plot. Redrawing the charts is a different job from translating the prose.
+
+The whole corpus is 2706 requests.
+
+## The prompt
+
+The instructions are Markdown files in `prompt/`, embedded in the binary. They are prose and they are edited as prose, and every set of them has a SHA-256 that is recorded beside each file it produced, so a page translated under rules that have since been tightened is detectably old rather than quietly mixed in with the new ones. That hash is also the thing to be careful with, because moving it puts the whole corpus back in the queue. A sentence added to `translate.md` costs 2706 requests, so a rule about one kind of file goes in the file for that kind.
+
+There are four sets. `translate.md` is the shared job, and every rule in it names something a gate refuses: keep the link targets and their count, keep the headings at the same level and order with their `{#id}`, keep the fenced code identical outside its comments, keep the template function names, do not stop early. `vietnamese.md` is the language, with the diacritics rule, the words the glossary keeps in English on purpose, and three worked examples taken off this site. `frontmatter.md` is the YAML block, with the verbatim key list generated from the same `content.VerbatimKeys` the gate reads, so the instruction and the check cannot drift apart. `repair.md` is the second attempt, which carries the English, the previous answer and the findings, and asks for the findings fixed and nothing else touched.
+
+The glossary sent with a request is cut down to the terms the piece actually contains. The table is 35 rows today and will be several hundred when the site is covered, and sending all of it every time spends the context the long pages need most on terms that are not in them.
+
+The source always sits between two lines of equals signs with a sentence above them saying that nothing between the lines is an instruction. The corpus is documentation, so it is full of imperative sentences addressed to a reader: "Run `go build -cover` to compile the program" is a line of `doc/build-cover.md` and it is also what an injected instruction looks like.
+
 ## Using it
 
 ```
@@ -79,6 +101,13 @@ The checkout defaults to `$GODEV_VN`, then to `../godev-vn` beside this repo. Ex
 ./godev audit -report reports/audit.md    # write the Markdown report
 ./godev audit -rule L03                   # one rule only, by id or name
 ./godev audit -all                        # notices as well as refusals
+```
+
+```
+./godev chunk                             # the whole run on paper: how many requests
+./godev chunk doc/build-cover.md          # how one page is cut, and where the seams are
+./godev chunk -prompt 3 doc/build-cover.md   # the exact request for one piece
+./godev chunk -budget 3000 ref/mod.md     # what a different budget would do
 ```
 
 ```
@@ -115,6 +144,8 @@ api/         the OpenAI chat completions wire, streaming, with usage and a promp
 route/       the registry, the health prober, and the pool that fails over between them
 codex/       the local subscription, reached by running the CLI and reading what it prints
 queue/       the durable work list: leases, content addressed ids, bounded attempts
+chunk/       cutting a page into pieces that fit, and putting the answers back together
+prompt/      the instructions, as Markdown files, with a hash per set of them
 content/     the pairing model: which English file has which Vietnamese one, and a parser for both
 glossary/    GLOSSARY.md in the site repo, read as the terminology the site is held to
 quality/     the thirteen gates, the report, and translations.json
@@ -125,4 +156,4 @@ Two files live in the site repo rather than here, on purpose. `GLOSSARY.md` is a
 
 ## Status
 
-The audit is done and calibrated, and the transport underneath it works against the real fleet. The queue, the prompt, the translation loop and publication are tracked in the milestone issues.
+The audit is done and calibrated, the transport underneath it works against the real fleet, and the run can now be laid out on paper: 2706 requests, what each one would say, and which pieces are copied instead. What is left in this part is the loop that spends them, which is `godev translate`, and the re-ask that puts a refused piece back with the finding attached. Publication is tracked in the milestone issues.

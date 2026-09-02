@@ -492,14 +492,6 @@ func skeleton(action string) string {
 	return strings.TrimSpace(spaceRE.ReplaceAllString(action, " "))
 }
 
-// VerbatimKeys are the front matter fields copied through untranslated.
-//
-// A date is a date. `by` is a list of people's names, and translating a name is
-// a bug. `tags` are matched against each other across posts to build the tag
-// index, so a translated tag silently empties a page. `layout`, `template` and
-// `redirect` are read by the site's Go code and mean nothing else.
-var VerbatimKeys = []string{"date", "by", "tags", "layout", "template", "redirect", "series"}
-
 // L09. The front matter changed shape.
 //
 // The keys must be the same set in the same order, and the values of
@@ -528,7 +520,7 @@ var ruleFrontMatter = Rule{
 				"front matter keys are [%s] and the English has [%s]",
 				strings.Join(vi, " "), strings.Join(en, " "))})
 		}
-		for _, key := range VerbatimKeys {
+		for _, key := range content.VerbatimKeys {
 			a, okA := content.FrontMatterValue(in.ENDoc.FrontMatter, key)
 			b, okB := content.FrontMatterValue(in.VIDoc.FrontMatter, key)
 			if !okA || !okB || a == b {
