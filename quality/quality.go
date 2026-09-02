@@ -184,8 +184,8 @@ func Audit(in Input) []Finding { return run(in, Rules()) }
 func AuditChunk(in Input) []Finding { return run(in, ChunkRules()) }
 
 func run(in Input, rules []Rule) []Finding {
-	in.ENDoc = content.Parse(in.EN)
-	in.VIDoc = content.Parse(in.VI)
+	in.ENDoc = content.Parse(in.Pair.Kind, in.EN)
+	in.VIDoc = content.Parse(in.Pair.Kind, in.VI)
 	var out []Finding
 	for _, rule := range rules {
 		if !rule.applies(in.Pair.Kind) {

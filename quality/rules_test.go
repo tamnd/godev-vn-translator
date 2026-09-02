@@ -15,12 +15,27 @@ import (
 // yet, and a fixture only ever tests the document it was cut from.
 func check(t *testing.T, rule Rule, en, vi string) []Finding {
 	t.Helper()
+	return checkKind(t, rule, content.KindMarkdown, en, vi)
+}
+
+// checkKind is check for a file that is not Markdown. The kind reaches the rules
+// through the parsed documents, so a test that means to exercise a .slide has to
+// say so or it gets a slide read as Markdown, which is the defect rather than
+// the fix.
+func checkKind(t *testing.T, rule Rule, kind content.Kind, en, vi string) []Finding {
+	t.Helper()
+	name := map[content.Kind]string{
+		content.KindMarkdown: "test.md",
+		content.KindHTML:     "test.html",
+		content.KindSlide:    "test.slide",
+		content.KindArticle:  "test.article",
+	}[kind]
 	in := Input{
-		Pair:  content.Pair{Rel: "test.md", Kind: content.KindMarkdown, Exists: vi != ""},
+		Pair:  content.Pair{Rel: name, Kind: kind, Exists: vi != ""},
 		EN:    en,
 		VI:    vi,
-		ENDoc: content.Parse(en),
-		VIDoc: content.Parse(vi),
+		ENDoc: content.Parse(kind, en),
+		VIDoc: content.Parse(kind, vi),
 	}
 	return rule.Check(in)
 }
@@ -206,7 +221,7 @@ func TestTerminology(t *testing.T) {
 		return ruleTerminology.Check(Input{
 			Pair: content.Pair{Rel: "t.md", Kind: content.KindMarkdown},
 			EN:   en, VI: vi,
-			ENDoc: content.Parse(en), VIDoc: content.Parse(vi),
+			ENDoc: content.Parse(content.KindMarkdown, en), VIDoc: content.Parse(content.KindMarkdown, vi),
 			Glossary: g,
 		})
 	}
@@ -387,4 +402,48 @@ func TestComments(t *testing.T) {
 	// The line breaks inside a comment move when the text around it is
 	// rewrapped, and they carry nothing.
 	count(t, ruleComments, "<!-- one\n  two -->\ntext\n", "<!-- one two -->\nvăn bản\n", 0)
+}
+
+// TestHeadingsPresent is L04 on a slide, which is where the rule was reading the
+// wrong thing entirely. A present(1) comment opens with a hash, a translator
+// rewraps it because the sentence got longer in Vietnamese, and the rule
+// reported a slide deck that had lost a third of its sections.
+func TestHeadingsPresent(t *testing.T) {
+	const en = `The talk
+Subtitle
+
+# A comment that runs to the end of this line
+# and onto a second one.
+
+* Introduction
+
+Prose.
+
+* Conclusions
+`
+	const vi = `Bài nói chuyện
+Phụ đề
+
+# Một chú thích dài hơn trong tiếng Việt nên nó chiếm ba dòng thay vì hai,
+# điều này không có nghĩa là bản dịch đã đánh mất một phần nào,
+# nó chỉ có nghĩa là câu đã dài ra.
+
+* Giới thiệu
+
+Văn xuôi.
+
+* Kết luận
+`
+	if f := checkKind(t, ruleHeadings, content.KindSlide, en, vi); len(f) != 0 {
+		t.Errorf("L04 refuses a slide whose sections all survived: %v", f)
+	}
+	// Read as Markdown it is the old finding, which is what the kind is for.
+	if f := checkKind(t, ruleHeadings, content.KindMarkdown, en, vi); len(f) != 1 {
+		t.Errorf("got %d findings reading the same slide as Markdown, want 1", len(f))
+	}
+	// And a slide that really did lose a section is still refused.
+	short := strings.Replace(vi, "\n* Kết luận\n", "\n", 1)
+	if f := checkKind(t, ruleHeadings, content.KindSlide, en, short); len(f) != 1 {
+		t.Errorf("got %d findings for a slide missing a section, want 1", len(f))
+	}
 }

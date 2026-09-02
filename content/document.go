@@ -75,6 +75,11 @@ type Link struct {
 var (
 	frontMatterRE = regexp.MustCompile(`(?s)\A---\r?\n(.*?)\r?\n---\r?\n`)
 	headingRE     = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*$`)
+	// presentHeadingRE is the same thing for present(1), which the .article and
+	// .slide files are written in. A section there opens with a star and not a
+	// hash, and a line that opens with a hash is a comment, which is the exact
+	// opposite of what headingRE would make of it.
+	presentHeadingRE = regexp.MustCompile(`^(\*{1,4})\s+(.*?)\s*$`)
 	attrsRE       = regexp.MustCompile(`\s*\{([^}]*)\}\s*$`)
 	idRE          = regexp.MustCompile(`#([^\s}]+)`)
 	fenceOpenRE   = regexp.MustCompile("^(\\s*)(```+|~~~+)\\s*(\\S*)")
@@ -82,7 +87,19 @@ var (
 )
 
 // Parse takes a file apart.
-func Parse(text string) Document {
+//
+// The kind is needed for one thing only, and it is the thing that reads
+// backwards. In Markdown a line opening with a hash is a heading; in present(1),
+// which the .article and .slide files are written in, a line opening with a hash
+// is a comment and a heading opens with a star. Parsing a slide as Markdown
+// counts its comments as its structure, so a translator who rewrapped a
+// four line comment into three lines looks like a translator who dropped a
+// section. That is what L04 was saying about talks/2012/simple.slide.
+//
+// Everything else here is format agnostic on purpose. Present bodies carry
+// Markdown links, fenced code and HTML comments, and the rules that count those
+// hold on a slide exactly as they hold on a page.
+func Parse(kind Kind, text string) Document {
 	var doc Document
 	doc.Body = text
 	if m := frontMatterRE.FindStringSubmatch(text); m != nil {
@@ -90,7 +107,7 @@ func Parse(text string) Document {
 		doc.Body = text[len(m[0]):]
 	}
 	doc.Fences = fences(doc.Body)
-	doc.Headings = headings(doc.Body)
+	doc.Headings = headings(doc.Body, kind)
 	doc.Links = linksOf(doc.Body)
 	doc.Actions = actionRE.FindAllString(text, -1)
 	doc.Blocks = blocks(doc.Body)
@@ -179,14 +196,18 @@ func insideFence(body string) []bool {
 	return in
 }
 
-func headings(body string) []Heading {
+func headings(body string, kind Kind) []Heading {
+	re := headingRE
+	if kind == KindArticle || kind == KindSlide {
+		re = presentHeadingRE
+	}
 	var out []Heading
 	code := insideFence(body)
 	for i, line := range strings.Split(body, "\n") {
 		if code[i] {
 			continue
 		}
-		m := headingRE.FindStringSubmatch(line)
+		m := re.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
