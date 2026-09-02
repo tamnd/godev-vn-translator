@@ -24,6 +24,7 @@ usage: godev [-C dir] <command> [flags]
 
 commands:
   audit      run the quality gates over the checkout and report
+  chunk      show how a page would be cut up, and what would be asked about it
   routes     list the model routes in the order they would be tried
   doctor     probe every route and say which ones are answering
   queue      look at the work list on disk, reap it, retry it, drain it
@@ -53,7 +54,7 @@ func main() {
 	cmd, rest := args[0], args[1:]
 	var runErr error
 	switch cmd {
-	case "audit", "queue":
+	case "audit", "chunk", "queue":
 		// Only the commands that work against the site need the site. Asking
 		// for a checkout before printing a route table would be a strange thing
 		// to fail on. The queue needs it because a work list is state about one
@@ -63,9 +64,12 @@ func main() {
 			log("%v", err)
 			os.Exit(1)
 		}
-		if cmd == "audit" {
+		switch cmd {
+		case "audit":
 			runErr = runAudit(dir, rest)
-		} else {
+		case "chunk":
+			runErr = runChunk(dir, rest)
+		default:
 			runErr = runQueue(dir, rest)
 		}
 	case "routes":

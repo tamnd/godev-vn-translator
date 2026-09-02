@@ -223,6 +223,20 @@ func blocks(body string) []string {
 	return out
 }
 
+// VerbatimKeys are the front matter fields copied through untranslated.
+//
+// A date is a date. `by` is a list of people's names, and translating a name is
+// a bug. `tags` are matched against each other across posts to build the tag
+// index, so a translated tag silently empties a page. `layout`, `template` and
+// `redirect` are read by the site's Go code and mean nothing else.
+//
+// It lives here rather than with the gate that enforces it because two things
+// need it and they must not disagree: the gate that refuses a file whose `date`
+// has moved, and the instruction that tells a model not to move it. A list kept
+// in two places is a list that drifts, and it drifts in the direction where the
+// model is told one thing and judged by another.
+var VerbatimKeys = []string{"date", "by", "tags", "layout", "template", "redirect", "series"}
+
 // FrontMatterKeys lists the top level keys of the front matter in the order
 // they are written, which is the order a gate compares them in.
 func FrontMatterKeys(frontMatter string) []string {
