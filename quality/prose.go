@@ -26,6 +26,7 @@ func Prose(text string) string {
 	text = htmlCommentRE.ReplaceAllString(text, " ")
 	text = styleRE.ReplaceAllString(text, " ")
 	text = scriptRE.ReplaceAllString(text, " ")
+	text = preRE.ReplaceAllString(text, " ")
 	// present links go before Markdown ones. `[[url][text]]` is how a .slide and
 	// an .article write a link, and the Markdown expression cannot see it because
 	// there is no parenthesis in it. The corpus has 401 of them across 56 files,
@@ -57,6 +58,12 @@ var (
 	// match the closing tag against the opening one.
 	styleRE  = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
 	scriptRE = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>`)
+	// preRE is the third of the same shape, and it is the one a reader is most
+	// likely to argue with, because a <pre> body is visible on the page. It is
+	// still not prose. doc/contribute.html has "remote: error: author email
+	// address" inside one, which is git talking, and it was being reported as a
+	// page that left the glossary term "author" in English.
+	preRE = regexp.MustCompile(`(?is)<pre\b[^>]*>.*?</pre\s*>`)
 	// The label is optional because present says it is: `[[url]]` renders the url
 	// as its own text. There is nothing to keep in that case, which is the same
 	// answer autolinkRE gives for the Markdown spelling of it.
