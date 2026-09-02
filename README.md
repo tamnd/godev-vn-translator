@@ -108,6 +108,18 @@ Assembly is a separate pass. It joins the pieces of every file that is whole, ru
 
 One decision in there will surprise somebody reading a diff. A piece that fails its last attempt is written in English. The alternative is leaving the file unassembled, and the overlay filesystem then serves the whole page in English anyway, so refusing to give up on one piece of `ref/mod.md` costs the other fifty nine and buys nothing a reader can see. The count goes in `translations.json` and is printed at the end of a run, because it is the one defect no gate will ever report: the page is whole, every link resolves, and three paragraphs of it are in the wrong language.
 
+## Publishing
+
+go.dev is a program. It renders Markdown, `.article` and `.slide` files through templates when the request arrives, and it routes on the hostname. Neither GitHub Pages nor Cloudflare Pages will run that, so `godev publish` runs it here instead: it builds `cmd/golangorg` out of the site checkout, starts it on a loopback port, walks it from the front page following every `href` and `src` it finds, and writes each answer where a static host will look for it. 436 pages, 947 assets and 121 redirects, in about twenty five seconds.
+
+Fifteen prefixes are not walked. `/pkg`, `/cmd` and `/src` are package documentation generated from a GOROOT, `/play` is the playground, `/dl` is the download list, and `/s`, `/issue`, `/cl` and `/change` are redirectors. The list is carried over from [tamnd/godev-worker](https://github.com/tamnd/godev-worker), which arrived at it by running the site behind a Worker and watching what broke. References to those prefixes are left pointing at `go.dev` rather than rewritten, because a rewrite would turn a working link to pkg.go.dev into a 404.
+
+Everything else that says `go.dev` is rewritten to the host being published to. That is not cosmetic: the canonical link tells a search engine which page is the original, and left alone it tells it that this site is a copy of the English one that should not be indexed.
+
+Three files are exported by name because no link points at them. `/tour/lesson/` is the whole lesson corpus as JSON and Angular asks for it at runtime; `/tour/static/partials/editor.html` and `list.html` are fetched by template id. Without them the tour loads its shell and sits empty, which is the worst kind of defect here because the site looks right.
+
+A redirect stays a redirect. Following one is the obvious thing and it is wrong: `/doc/articles/image_draw.html` redirects to `/blog/image-draw`, and an export that followed it would write the article's HTML at the old path, where its relative links to the figures resolve into a directory that does not exist. The first run of this did exactly that, and 77 paths came back missing. Now the old path gets a `_redirects` line for Cloudflare and a meta refresh page with a canonical link for GitHub Pages, which has no redirects at all, and the target is crawled on its own. Two paths are still missing and both are dead links in upstream's own content.
+
 ## Using it
 
 ```
@@ -155,6 +167,13 @@ It is wrong in one narrow direction and right in the direction that matters. A t
 L13 went from 654 findings to 129. 97 of those are files whose Vietnamese is byte for byte the English, which are copies rather than translations and are left without a record on purpose, and L02 reports every one of them already. The other 32 refuse, and they are exactly the 32 files the sync modified, with nothing outside the sync named. Route, model and prompt hash are left empty on a backfilled record, because a translation made by hand was not asked for under any instructions this tool knows and an empty field says so without inventing a value.
 
 ```
+./godev publish                           # export to ../godev-vn/dist, audit first
+./godev publish -out /tmp/dist -max 72    # somewhere else, against the pin CI uses
+./godev publish -host godev.vn            # rewrite go.dev references to another host
+./godev publish -no-audit                 # export a checkout the gates refuse
+```
+
+```
 ./godev routes                            # what would be tried, in what order
 ./godev routes -write ~/.config/godev/routes.json
 ./godev doctor                            # is each route up, in milliseconds
@@ -194,6 +213,7 @@ content/     the pairing model: which English file has which Vietnamese one, and
 glossary/    GLOSSARY.md in the site repo, read as the terminology the site is held to
 quality/     the fifteen gates, the report, and translations.json
 translate/   the loop: plan, run with the re-ask, assemble, audit, write
+publish/     the crawl that turns the running site into a directory of files
 cmd/godev/   the command line
 ```
 
