@@ -614,3 +614,50 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 		})
 	}
 }
+
+// The 32 files the upstream sync moved out from under their translations are
+// what a run is for, and this is the shape that stopped every one of them.
+//
+// L13 says a translation was made from English that has since changed. It is
+// true when assembly starts and it is about to stop being true, because the
+// record is rewritten from the English on disk the moment the file is written.
+// Auditing it there refused the file, the refusal blocked the write, and the
+// write was the only thing that would have cleared it.
+func TestAStaleRecordDoesNotBlockTheFileThatReplacesIt(t *testing.T) {
+	h := setup(t, map[string]string{"blog/unique.md": page}, good)
+
+	// A translation on disk, recorded as made from English that is not the
+	// English on disk now.
+	vi := filepath.Join(h.root, content.VietnameseDir, "blog", "unique.md")
+	if err := os.MkdirAll(filepath.Dir(vi), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := good(page, 0)
+	if err := os.WriteFile(vi, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := quality.LoadManifest(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Set("blog/unique.md", quality.Record{EnglishSHA256: content.SHA256("an older go.dev")})
+	if err := manifest.Write(h.root); err != nil {
+		t.Fatal(err)
+	}
+
+	_, assembly := h.cycle()
+	if len(assembly.Refused) > 0 {
+		t.Fatalf("the file was refused: %+v", assembly.Refused)
+	}
+	if len(assembly.Written) != 1 {
+		t.Fatalf("wrote %d files, want 1: %+v", len(assembly.Written), assembly)
+	}
+	manifest, err = quality.LoadManifest(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, _ := manifest.Get("blog/unique.md")
+	if record.EnglishSHA256 != content.SHA256(page) {
+		t.Error("the record still names the English the translation was not made from")
+	}
+}
