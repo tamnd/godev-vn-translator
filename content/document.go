@@ -14,9 +14,12 @@ import (
 // sequence that has to survive translation, and each is extracted here as a
 // sequence so a comparison is a comparison of two slices.
 type Document struct {
-	// FrontMatter is the YAML between the first two --- lines, when there is
-	// one. The site reads title, date, by, tags, summary, layout, template and
-	// redirect out of it.
+	// FrontMatter is the leading metadata block, when there is one, in either
+	// of the two forms the corpus uses: the YAML between the first two ---
+	// lines, or the JSON object inside the leading HTML comment. The braces are
+	// kept on the second and the fences are not kept on the first, which is how
+	// FrontMatterKeys tells them apart afterwards. The site reads title, date,
+	// by, tags, summary, layout, template and redirect out of it.
 	FrontMatter string
 	// Body is everything after it.
 	Body string
@@ -153,12 +156,17 @@ var commentRE = regexp.MustCompile(`(?s)<!--(.*?)-->`)
 // `<!-- for consistent spacing -->` between inline elements, where the comment
 // is what keeps the whitespace out of the rendering.
 //
-// The site's own page metadata is not a comment and is dropped here. An `.html`
-// page under _content opens with `<!--{ "Title": ... }-->`, and Parse only
-// knows how to lift YAML front matter out of the body, so that block is still
-// in Body when this runs. It is the one comment on the site whose contents are
-// meant to be translated, and leaving it in would make every translated .html
-// page look like it had lost one. Nothing else on the corpus opens with a
+// The site's own page metadata is not a comment and is dropped here. 77 pages
+// under `doc/`, `ref/` and `solutions/` open with `<!--{ "Title": ... }-->`,
+// which is front matter and not a remark: it is the one comment on the site
+// whose contents are meant to be translated, and counting it would make every
+// translated page in that form look like it had lost one.
+//
+// Parse now lifts that block out of Body, so the skip below covers nothing at
+// the top of a page any more. It is kept for a block that is not at the top,
+// which the anchored pattern in Parse leaves where it is, and because a rule
+// that depends on two functions agreeing about what front matter is should not
+// depend on the order they run in. Nothing else on the corpus opens with a
 // brace.
 //
 // Fenced code is blanked first, for the same reason links are: a comment in an
