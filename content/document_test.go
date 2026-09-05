@@ -313,3 +313,50 @@ func TestHeadingLevels(t *testing.T) {
 		}
 	}
 }
+
+// The corpus writes front matter two ways. `blog/` and the rest use a --- fence
+// and 77 files under `doc/`, `ref/` and `solutions/` use a JSON object inside an
+// HTML comment, which is what golang.org/x/website/internal/web reads there.
+//
+// Nothing knew about the second form until doc/contrib.md came back from a run
+// with the tab in front of "Redirect" turned into a space. Its front matter was
+// never separated from its body, and L09 had never once looked at any of the 77
+// because FrontMatterKeys returned an empty list for all of them.
+func TestJSONFrontMatter(t *testing.T) {
+	const text = "<!--{\n\t\"Title\": \"Organizing a Go module\",\n\t\"Breadcrumb\": true\n}-->\n\nbody text\n"
+	doc := Parse(KindMarkdown, text)
+	if doc.Body != "\nbody text\n" {
+		t.Errorf("body is %q, want the text after the comment", doc.Body)
+	}
+	keys := FrontMatterKeys(doc.FrontMatter)
+	if len(keys) != 2 || keys[0] != "Title" || keys[1] != "Breadcrumb" {
+		t.Errorf("keys are %q, want [Title Breadcrumb] in that order", keys)
+	}
+	if v, ok := FrontMatterValue(doc.FrontMatter, "Title"); !ok || v != `"Organizing a Go module"` {
+		t.Errorf("Title is %q %v, want the raw value with its quotes", v, ok)
+	}
+}
+
+// VerbatimKeys are lowercase and this form writes `Redirect` and `Template`, so
+// an exact match would have the value half of L09 say nothing on all 77.
+func TestFrontMatterValueIgnoresCase(t *testing.T) {
+	doc := Parse(KindMarkdown, "<!--{\n\t\"Redirect\": \"/project/\"\n}-->\n")
+	v, ok := FrontMatterValue(doc.FrontMatter, "redirect")
+	if !ok || v != `"/project/"` {
+		t.Errorf("redirect is %q %v, want the value under the capitalised key", v, ok)
+	}
+}
+
+// A file with neither form has no front matter and all of it is body. The JSON
+// pattern is anchored, so a comment further down the page is prose and stays
+// where it is.
+func TestNoFrontMatter(t *testing.T) {
+	const text = "# One\n\n<!--{ not front matter }-->\n"
+	doc := Parse(KindMarkdown, text)
+	if doc.FrontMatter != "" {
+		t.Errorf("front matter is %q, want none", doc.FrontMatter)
+	}
+	if doc.Body != text {
+		t.Errorf("body is %q, want the whole file", doc.Body)
+	}
+}

@@ -25,6 +25,8 @@ func TestTheChunksAreTheFile(t *testing.T) {
 		"markdown": {content.KindMarkdown, "---\ntitle: A\n---\n\n# One\n\nprose\n\n\n\nmore\n"},
 		"no front matter": {content.KindMarkdown,
 			"# One\n\nprose\n\nmore\n"},
+		"json front matter": {content.KindMarkdown,
+			"<!--{\n\t\"Title\": \"A\"\n}-->\n\n# One\n\nprose\n"},
 		"trailing blanks":  {content.KindMarkdown, "a\n\n\n\n"},
 		"no final newline": {content.KindMarkdown, "a\n\nb"},
 		"crlf":             {content.KindMarkdown, "---\r\ntitle: A\r\n---\r\n\r\nbody\r\n"},
@@ -296,6 +298,44 @@ func TestFrontMatterWithNothingToTranslateIsCopied(t *testing.T) {
 	}
 	if !chunks[0].Verbatim {
 		t.Error("a front matter block of nothing but a redirect is being asked about")
+	}
+}
+
+// doc/contrib.md is four lines long and three of them are the comment. It came
+// back from a run with the tab in front of "Redirect" turned into a space,
+// because this form was not recognised and the block went out inside the body.
+func TestJSONFrontMatterIsItsOwnPieceAndIsCopied(t *testing.T) {
+	const text = "<!--{\n\t\"Redirect\": \"/project/\"\n}-->\n"
+	chunks := Split("doc/contrib.md", content.KindMarkdown, text, 0)
+	if len(chunks) != 1 {
+		t.Fatalf("got %d pieces, want 1: %+v", len(chunks), chunks)
+	}
+	if chunks[0].Part != PartFrontMatter {
+		t.Fatalf("the JSON front matter form is not being separated: %+v", chunks[0])
+	}
+	if !chunks[0].Verbatim {
+		t.Error("a JSON front matter block of nothing but a redirect is being asked about")
+	}
+	if chunks[0].Text != text {
+		t.Errorf("the piece is %q, want the block as it stands", chunks[0].Text)
+	}
+}
+
+// The 77 files in this form are mostly a title and a breadcrumb, and a title is
+// prose. Separating the block is the point on those: it is asked on its own,
+// under the instruction for front matter, rather than folded into the first
+// paragraph of the body.
+func TestJSONFrontMatterWithATitleIsAsked(t *testing.T) {
+	const text = "<!--{\n\t\"Title\": \"Organizing a Go module\",\n\t\"Breadcrumb\": true\n}-->\n\nbody\n"
+	chunks := Split("doc/modules/layout.md", content.KindMarkdown, text, 0)
+	if chunks[0].Part != PartFrontMatter {
+		t.Fatalf("the first piece is not front matter: %+v", chunks[0])
+	}
+	if chunks[0].Verbatim {
+		t.Error("front matter with a title in it was copied")
+	}
+	if got := join(chunks); got != text {
+		t.Errorf("the pieces do not put the file back together:\n%q\n%q", got, text)
 	}
 }
 

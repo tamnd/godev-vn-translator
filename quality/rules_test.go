@@ -215,6 +215,28 @@ func TestFrontMatter(t *testing.T) {
 	count(t, ruleFrontMatter, en, "---\ndate: 2011-03-24\ntitle: Dữ liệu Gob\n---\n\nthân\n", 1)
 }
 
+// The same rule on the other form. 77 files under doc/, ref/ and solutions/
+// write their front matter as a JSON object inside an HTML comment, and this
+// rule said nothing about any of them for as long as the parser knew only the
+// fence, because an unreadable block has no keys and no keys match no keys.
+//
+// The moment it could read them it found the 138 file mistake 25 more times,
+// and doc/modules/layout.md is the plain case: the English has a Title and the
+// Vietnamese has a Title and a "template": true.
+func TestJSONFrontMatter(t *testing.T) {
+	en := "<!--{\n\t\"Title\": \"Organizing a Go module\"\n}-->\n\nbody\n"
+	count(t, ruleFrontMatter, en, "<!--{\n\t\"Title\": \"Tổ chức một module Go\"\n}-->\n\nthân\n", 0)
+	count(t, ruleFrontMatter, en,
+		"<!--{\n\t\"Title\": \"Tổ chức một module Go\",\n\t\"template\": true\n}-->\n\nthân\n", 1)
+
+	// A redirect is read by the site's Go code and means nothing else, and this
+	// form capitalises it, so the value check has to match the key without
+	// regard to case or it would find nothing to compare.
+	red := "<!--{\n\t\"Redirect\": \"/project/\"\n}-->\n"
+	count(t, ruleFrontMatter, red, red, 0)
+	count(t, ruleFrontMatter, red, "<!--{\n\t\"Redirect\": \"/du-an/\"\n}-->\n", 1)
+}
+
 func TestTerminology(t *testing.T) {
 	g := glossary.Parse("| garbage collector | bộ thu gom rác | |\n| commit | commit | |\n")
 	run := func(en, vi string) []Finding {
