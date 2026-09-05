@@ -611,6 +611,19 @@ var selfLinkRE = regexp.MustCompile(`\]\(\[([^\[\]()\s]+)\]\(([^\[\]()\s]+)\)\)`
 // what every anchor in the corpus uses and what the evidence shows.
 var attrSelfLinkRE = regexp.MustCompile(`(href|src)="\[([^\[\]"]+)\]\(([^()"]+)\)"`)
 
+// autolinkRE matches the same defect again, `[url](url)` where the page wrote
+// the url on its own with no link around it at all.
+//
+// This is the third face of it and the two above do not reach it, because both
+// of them need something the page already wrote: the first needs the `](` of a
+// real link and the second needs an `href="`. A bare url in a shell transcript
+// has neither. `$ curl http://localhost:8080/albums` is a command a reader is
+// meant to type and it came back as
+// `$ curl [http://localhost:8080/albums](http://localhost:8080/albums)`, which
+// is not a command, and the tutorial page that says where to send govulncheck
+// feedback lost five urls the same way in one answer.
+var autolinkRE = regexp.MustCompile(`\[([^\[\]()\s]+)\]\(([^\[\]()\s]+)\)`)
+
 // entityRE matches a numeric character reference, decimal or hexadecimal.
 var entityRE = regexp.MustCompile(`&#(x[0-9a-fA-F]+|[0-9]+);`)
 
@@ -694,6 +707,7 @@ func unmangle(text, english string) string {
 		}
 		return g[1] + `="` + g[3] + `"`
 	})
+	text = unautolink(text, english)
 	text = entityRE.ReplaceAllStringFunc(text, func(m string) string {
 		r, ok := entityRune(m)
 		if !ok || strings.Contains(english, m) || !strings.ContainsRune(english, r) {
@@ -702,6 +716,62 @@ func unmangle(text, english string) string {
 		return string(r)
 	})
 	return reindent(text, english)
+}
+
+// unautolink takes the link back off a bare url inside a fenced block.
+//
+// Only inside a fenced block, and that restriction is what makes the repair
+// safe rather than clever. In prose `[url](url)` and a bare url render the same
+// and carry the same target, so unwrapping one there changes a translation
+// nobody complained about, and there is a shape it would get wrong: an English
+// `[the feedback form](https://x)` whose label came back as the url is a link
+// this would flatten into text, turning an answer the gates accept into one
+// they refuse for a dropped link. Inside a fence none of that is possible. L06
+// requires the code outside its comments to be the English character for
+// character, the corpus has no Markdown link inside any fence, and a url is
+// there because a reader is meant to type it or read it as output.
+//
+// The proof is still the English. The url has to appear in it bare, and the
+// linked form must not appear in it at all, so the repair only ever undoes
+// something the answer added.
+//
+// A link with a bracket against either end of it is left alone, and that is the
+// one case worth naming because it is real. The same converter has been seen
+// running over its own output twice more, so one url in a govulncheck report
+// came back as three links nested inside each other with the brackets no longer
+// balanced. Unwrapping the innermost one leaves the rest of the pile standing
+// and the line is still not the English, so the repair would have taken a line
+// that is obviously broken and made it slightly less broken for nothing. L06
+// refuses it, the piece is asked again carrying that finding, and a second ask
+// is the right answer to an answer this mangled.
+func unautolink(text, english string) string {
+	lines := strings.Split(text, "\n")
+	changed := false
+	for _, block := range fenced(lines) {
+		for i := block[0]; i < block[1]; i++ {
+			was := lines[i]
+			line := was
+			for _, at := range autolinkRE.FindAllStringSubmatchIndex(was, -1) {
+				m, url, target := was[at[0]:at[1]], was[at[2]:at[3]], was[at[4]:at[5]]
+				if url != target || strings.Contains(english, m) || !strings.Contains(english, url) {
+					continue
+				}
+				if at[0] > 0 && was[at[0]-1] == '[' {
+					continue
+				}
+				if at[1] < len(was) && (was[at[1]] == ']' || was[at[1]] == '(') {
+					continue
+				}
+				line = strings.Replace(line, m, url, 1)
+			}
+			lines[i] = line
+			changed = changed || line != was
+		}
+	}
+	if !changed {
+		return text
+	}
+	return strings.Join(lines, "\n")
 }
 
 // reindent puts back the leading whitespace of a code line that came back with
