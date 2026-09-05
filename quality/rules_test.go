@@ -684,3 +684,59 @@ func TestTransport(t *testing.T) {
 		})
 	}
 }
+
+// The three real files, the two phrases that were rejected as too broad, and
+// the case where a phrase legitimately appears more than once.
+func TestNotice(t *testing.T) {
+	header := "// Copyright 2011 The Go Authors. All rights reserved.\n" +
+		"// Use of this source code is governed by a BSD-style\n" +
+		"// license that can be found in the LICENSE file.\n"
+
+	// doc/contribute.html, which shows the header in a <pre> under a sentence
+	// telling contributors to use it. Two of the three lines were translated.
+	en := "<p>New files should use the standard copyright header:</p>\n<pre>\n" + header + "</pre>\n"
+	vi := "<p>Các tệp mới nên dùng tiêu đề bản quyền tiêu chuẩn:</p>\n<pre>\n" +
+		"// Copyright 2011 The Go Authors. All rights reserved.\n" +
+		"// Việc sử dụng mã nguồn này được điều chỉnh bởi giấy phép kiểu BSD\n" +
+		"// có thể được tìm thấy trong tệp LICENSE.\n</pre>\n"
+	if got := check(t, ruleNotice, en, vi); len(got) != 1 {
+		t.Errorf("a translated license line must be refused, got %d: %v", len(got), got)
+	}
+
+	// codewalkdir.tmpl, where the whole header is an HTML comment and the whole
+	// of it went.
+	viAll := "<!--\n Copyright 2010 Các tác giả Go. Mọi quyền được bảo lưu.\n" +
+		" Việc sử dụng mã nguồn này chịu sự điều chỉnh của giấy phép kiểu BSD\n-->\n"
+	if got := check(t, ruleNotice, "<!--\n"+header+"-->\n", viAll); len(got) != 2 {
+		t.Errorf("both phrases must be refused, got %d: %v", len(got), got)
+	}
+
+	// The header reproduced is the ordinary case and says nothing.
+	if got := check(t, ruleNotice, en, "<p>Các tệp mới:</p>\n<pre>\n"+header+"</pre>\n"); len(got) != 0 {
+		t.Errorf("a reproduced notice must be silent, got %d: %v", len(got), got)
+	}
+
+	// A sentence about the license is prose and is translated, which is why the
+	// rule matches the phrases it does and not "BSD-style" or "The Go Authors".
+	if got := check(t, ruleNotice,
+		"Go is distributed under a BSD-style license.",
+		"Go được phân phối theo giấy phép kiểu BSD."); len(got) != 0 {
+		t.Errorf("a sentence about the license must be silent, got %d: %v", len(got), got)
+	}
+	if got := check(t, ruleNotice,
+		"The Go Authors went on to produce lots of libraries.",
+		"Các tác giả Go tiếp tục tạo ra nhiều thư viện."); len(got) != 0 {
+		t.Errorf("the authors named in a sentence must be silent, got %d: %v", len(got), got)
+	}
+
+	// Two headers in one file and one of them translated. Counting rather than
+	// asking whether the phrase is present at all is what catches this.
+	if got := check(t, ruleNotice, header+"\n"+header, header+"\nBản quyền của Các tác giả Go.\n"); len(got) != 2 {
+		t.Errorf("the second header must be refused, got %d: %v", len(got), got)
+	}
+
+	// A file with no notice in it is most of the site.
+	if got := check(t, ruleNotice, "Run it and see.", "Chạy thử và xem."); len(got) != 0 {
+		t.Errorf("a page with no notice must be silent, got %d: %v", len(got), got)
+	}
+}
