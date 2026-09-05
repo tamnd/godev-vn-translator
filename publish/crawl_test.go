@@ -2,6 +2,7 @@ package publish
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,6 +36,12 @@ func crawlFixture(t *testing.T) (*crawl, func()) {
 	})
 	mux.HandleFunc("/doc/articles/image_draw.html", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/blog/image-draw", http.StatusMovedPermanently)
+	})
+	mux.HandleFunc("/404", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<link rel="canonical" href="https://go.dev/404">
+			<h1>Không tìm thấy trang</h1>
+			<a href="/doc/faq">FAQ</a>`))
 	})
 	mux.HandleFunc("/design/go2draft", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://github.com/golang/proposal", http.StatusFound)
@@ -217,6 +224,135 @@ func TestWriteRedirectsOneHost(t *testing.T) {
 	}
 	if got := read(t, c.out, "_redirects"); strings.Contains(got, "https://godev-vn.tamnd.com") {
 		t.Errorf("_redirects sends the only host to itself:\n%s", got)
+	}
+}
+
+func TestCheckRules(t *testing.T) {
+	// A comment is not a rule, a host rule is dynamic because of the splat, and
+	// a plain path pair is static.
+	ok := "# Written by godev publish. Do not edit.\n\n" +
+		"https://godev.vn/* /placeholder.html 200\n" +
+		"/pkg/* https://go.dev/pkg/:splat 302\n" +
+		"/doc/articles/image_draw.html /blog/image-draw 301\n"
+	if err := checkRules(ok); err != nil {
+		t.Fatalf("a table well inside every cap was refused: %v", err)
+	}
+
+	var b strings.Builder
+	for i := 0; i < maxDynamic+1; i++ {
+		fmt.Fprintf(&b, "/a%d/* https://go.dev/a%d/:splat 302\n", i, i)
+	}
+	if err := checkRules(b.String()); err == nil {
+		t.Error("a table over the dynamic cap was accepted")
+	}
+
+	b.Reset()
+	for i := 0; i < maxStatic+1; i++ {
+		fmt.Fprintf(&b, "/a%d /b%d 301\n", i, i)
+	}
+	if err := checkRules(b.String()); err == nil {
+		t.Error("a table over the static cap was accepted")
+	}
+
+	long := "/" + strings.Repeat("a", maxRule) + " /b 301\n"
+	if err := checkRules(long); err == nil {
+		t.Error("a rule over the character cap was accepted")
+	}
+}
+
+// The tour routes in the browser and nothing links to its lessons, so the only
+// list of its addresses is the lesson document it fetches for itself. The crawl
+// reached two of the hundred and ten before this.
+func TestTourRoutes(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	lessons := []byte(`{
+		"welcome": {"Title": "Chào mừng", "Pages": [{}, {}]},
+		"basics": {"Title": "Cơ bản", "Pages": [{}, {}, {}]}
+	}`)
+	if err := c.tourRoutes(lessons); err != nil {
+		t.Fatal(err)
+	}
+	// Sorted by lesson, then by page, so two runs of the export queue the same
+	// work in the same order.
+	want := []string{
+		"/tour/basics", "/tour/basics/1", "/tour/basics/2", "/tour/basics/3",
+		"/tour/welcome", "/tour/welcome/1", "/tour/welcome/2",
+	}
+	if len(c.queue) != len(want) {
+		t.Fatalf("queued %q, want %q", c.queue, want)
+	}
+	for i, w := range want {
+		if c.queue[i] != w {
+			t.Errorf("queued %q at %d, want %q", c.queue[i], i, w)
+		}
+	}
+}
+
+// A lesson the crawl already reached by link is not queued a second time, or
+// the export would count it as two pages and write it twice.
+func TestTourRoutesAlreadySeen(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	c.seen["/tour/basics/1"] = true
+	if err := c.tourRoutes([]byte(`{"basics": {"Pages": [{}]}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.queue) != 1 || c.queue[0] != "/tour/basics" {
+		t.Errorf("queued %q, want only the lesson root", c.queue)
+	}
+}
+
+// TestNotFound is the file that decides whether Pages treats the export as a
+// site or as a single page application. Without it every path that is not in
+// the export answers 200 with the front page.
+func TestNotFound(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	if err := c.notFound(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, c.out, "404.html")
+	if !strings.Contains(got, "Không tìm thấy trang") {
+		t.Errorf("404.html is not the page the site serves at /404:\n%s", got)
+	}
+	// It goes through the same rewrite as every other page, so the canonical
+	// link on it names this site and not go.dev.
+	if !strings.Contains(got, `href="https://godev-vn.tamnd.com/404"`) {
+		t.Errorf("the canonical link on 404.html was not rewritten:\n%s", got)
+	}
+	// At the top of the export under that exact name. 404/index.html is a page
+	// about not being found, which neither host looks for.
+	if _, err := os.Stat(filepath.Join(c.out, "404", "index.html")); err == nil {
+		t.Error("the not found page was written as a page of the site as well")
+	}
+	// Nothing is crawled out of it. Everything it links to is linked from the
+	// site anyway, and a page that exists to be a dead end should not be adding
+	// work.
+	if len(c.queue) != 0 {
+		t.Errorf("queued %q out of the not found page", c.queue)
+	}
+}
+
+// A checkout with no 404 page has to stop the export rather than produce one
+// without the file, because the difference only shows up after a deploy.
+func TestNotFoundMissing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	c := &crawl{
+		opts: Options{Host: "godev-vn.tamnd.com", Log: func(string, ...any) {}},
+		out:  t.TempDir(),
+		site: srv.URL,
+		seen: map[string]bool{},
+	}
+	err := c.notFound(context.Background())
+	if err == nil {
+		t.Fatal("a site with no page at /404 exported without complaining")
+	}
+	if !strings.Contains(err.Error(), "_content_vi/404.md") {
+		t.Errorf("the error does not say what to add: %v", err)
 	}
 }
 
