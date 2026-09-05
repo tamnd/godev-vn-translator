@@ -1045,3 +1045,62 @@ func TestReindentPutsBackTheIndentOfAFenceMarker(t *testing.T) {
 		})
 	}
 }
+
+// A bare url in a shell transcript is a command a reader is meant to type. The
+// converter on the way back autolinks it, which turns `$ curl http://x` into
+// `$ curl [http://x](http://x)`, and L06 refuses a block that is otherwise the
+// English character for character. One answer lost five urls this way.
+func TestUnautolinkTakesTheLinkBackOffABareURL(t *testing.T) {
+	for _, tt := range []struct {
+		name, answer, english, want string
+	}{
+		{
+			name:    "a url in a shell transcript",
+			english: "Chay lenh.\n\n```\n$ curl http://localhost:8080/albums\n```\n",
+			answer:  "Chay lenh.\n\n```\n$ curl [http://localhost:8080/albums](http://localhost:8080/albums)\n```\n",
+			want:    "Chay lenh.\n\n```\n$ curl http://localhost:8080/albums\n```\n",
+		},
+		{
+			name:    "two urls on one line",
+			english: "```\nsee https://vuln.go.dev and https://go.dev/s/x\n```\n",
+			answer:  "```\nsee [https://vuln.go.dev](https://vuln.go.dev) and [https://go.dev/s/x](https://go.dev/s/x)\n```\n",
+			want:    "```\nsee https://vuln.go.dev and https://go.dev/s/x\n```\n",
+		},
+		{
+			name:    "the same shape in prose is left alone",
+			english: "Doc tai https://vuln.go.dev de biet them.\n",
+			answer:  "Doc tai [https://vuln.go.dev](https://vuln.go.dev) de biet them.\n",
+			want:    "Doc tai [https://vuln.go.dev](https://vuln.go.dev) de biet them.\n",
+		},
+		{
+			name:    "a real link is not a link to itself",
+			english: "```\nsee https://vuln.go.dev\n```\n",
+			answer:  "```\nsee [co so du lieu](https://vuln.go.dev)\n```\n",
+			want:    "```\nsee [co so du lieu](https://vuln.go.dev)\n```\n",
+		},
+		{
+			name:    "the English wrote the linked form itself",
+			english: "```\nsee [https://vuln.go.dev](https://vuln.go.dev)\n```\n",
+			answer:  "```\nsee [https://vuln.go.dev](https://vuln.go.dev)\n```\n",
+			want:    "```\nsee [https://vuln.go.dev](https://vuln.go.dev)\n```\n",
+		},
+		{
+			name:    "a url the English never wrote is not the answer's to lose",
+			english: "```\nsee the database\n```\n",
+			answer:  "```\nsee [https://vuln.go.dev](https://vuln.go.dev)\n```\n",
+			want:    "```\nsee [https://vuln.go.dev](https://vuln.go.dev)\n```\n",
+		},
+		{
+			name:    "a converter that ran over its own output is left to the gate",
+			english: "```\n  More info: https://pkg.go.dev/vuln/GO-2021-0113\n```\n",
+			answer:  "```\n  More info: [[https://pkg.go.dev/vuln/GO-2021-0113](https://pkg.go.dev/vuln/GO-2021-0113)](https://pkg.go.dev/vuln/GO-2021-0113)\n```\n",
+			want:    "```\n  More info: [[https://pkg.go.dev/vuln/GO-2021-0113](https://pkg.go.dev/vuln/GO-2021-0113)](https://pkg.go.dev/vuln/GO-2021-0113)\n```\n",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := unautolink(tt.answer, tt.english); got != tt.want {
+				t.Errorf("unautolink\n got %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
