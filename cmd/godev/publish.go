@@ -65,6 +65,7 @@ func runPublish(ctx context.Context, root string, args []string) error {
 		Host:        canonical,
 		Redirecting: conf.Redirecting(),
 		Waiting:     conf.Waiting(),
+		Mirrors:     conf.Mirrors(),
 		Addr:        *addr,
 		Log:         func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
 	})

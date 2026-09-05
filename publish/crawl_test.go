@@ -263,3 +263,42 @@ func TestWriteHeaders(t *testing.T) {
 		t.Error("a policy written blind breaks the tour and the playground")
 	}
 }
+
+// TestWriteCNAME is the GitHub Pages half of SITE.md.
+//
+// No mirror means no file, and no file is what the deploy workflow reads as
+// there being nothing to publish to Pages. That is the state today: a project
+// page at tamnd.github.io/godev-vn would serve a site whose every absolute
+// reference starts at the root of a domain it is not at.
+func TestWriteCNAME(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+
+	if err := c.writeCNAME(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(c.out, "CNAME")); !os.IsNotExist(err) {
+		t.Errorf("a CNAME was written with no mirror in SITE.md: %v", err)
+	}
+
+	c.opts.Mirrors = []string{"godev-vn-mirror.tamnd.com"}
+	if err := c.writeCNAME(); err != nil {
+		t.Fatal(err)
+	}
+	// One hostname and a newline. That is the whole of the interface, and a
+	// CNAME with anything else in it is a custom domain GitHub does not accept.
+	if got := read(t, c.out, "CNAME"); got != "godev-vn-mirror.tamnd.com\n" {
+		t.Errorf("CNAME is %q", got)
+	}
+
+	// GitHub Pages takes one custom domain per repository, so a second mirror
+	// is a setting nobody can act on from here and refusing the export over it
+	// would be worse than saying which one was taken.
+	c.opts.Mirrors = []string{"first.example", "second.example"}
+	if err := c.writeCNAME(); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, c.out, "CNAME"); got != "first.example\n" {
+		t.Errorf("CNAME is %q, want the first mirror", got)
+	}
+}
