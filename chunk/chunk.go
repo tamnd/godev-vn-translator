@@ -20,6 +20,7 @@ package chunk
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/tamnd/godev-vn-translator/content"
@@ -121,6 +122,40 @@ func verbatim(unit string) bool {
 	return len(unit) >= verbatimMin && strings.Contains(strings.ToLower(unit), verbatimMark)
 }
 
+// frontMatterIsAllVerbatim reports whether a front matter block has nothing in
+// it a translator would touch.
+//
+// content.VerbatimKeys are the keys copied through untranslated: a date is a
+// date, `by` is a list of names, and `layout`, `template` and `redirect` are
+// read by the site's Go code. A block made only of those has no sentence in it.
+//
+// about.md is the whole of the file:
+//
+//	---
+//	redirect: https://pkg.go.dev/about
+//	---
+//
+// It was asked about on every run, the answer came back with the key in
+// Vietnamese, L09 refused it, and the piece was asked again. Twelve pages are
+// this shape. Nothing here is a judgement call about what a model should do
+// with them, because there is no reason to ask.
+//
+// The key list and not the value: a key outside the list counts even when its
+// value looks like a URL, because `title: https://example.com` is a title and
+// deciding otherwise is guessing.
+func frontMatterIsAllVerbatim(block string) bool {
+	keys := content.FrontMatterKeys(block)
+	if len(keys) == 0 {
+		return false
+	}
+	for _, key := range keys {
+		if !slices.Contains(content.VerbatimKeys, strings.ToLower(key)) {
+			return false
+		}
+	}
+	return true
+}
+
 // frontMatterRE matches the whole leading fence, delimiters included, so the
 // front matter chunk holds the ---, the YAML and the closing --- as they stand.
 // Keeping the delimiters in the chunk is what makes the concatenation exact.
@@ -134,7 +169,8 @@ func Split(rel string, kind content.Kind, text string, budget int) []Chunk {
 	var out []Chunk
 	body := text
 	if m := frontMatterRE.FindString(text); m != "" {
-		out = append(out, Chunk{Rel: rel, Kind: kind, Part: PartFrontMatter, Text: m})
+		out = append(out, Chunk{Rel: rel, Kind: kind, Part: PartFrontMatter, Text: m,
+			Verbatim: frontMatterIsAllVerbatim(m)})
 		body = text[len(m):]
 	}
 

@@ -394,6 +394,21 @@ func (e *Engine) do(ctx context.Context, job queue.Job, value route.Route, clien
 		return out, ferr
 	}
 
+	if c.Verbatim {
+		// The cut changed under a job that was already in the queue, and the
+		// piece it names is copied through now. There is nothing to ask, so the
+		// job is finished rather than failed: no route was involved, no attempt
+		// was spent, and the piece is as done as a copied piece ever gets.
+		//
+		// Failing it instead would take three attempts to reach dead and put a
+		// route error in the log for a piece no route ever saw. There were 300
+		// of these in the queue the day front matter that is nothing but a
+		// redirect stopped being asked about.
+		e.logf("%s  piece %d is copied through now, dropping the job", rel, index)
+		_, err := e.Queue.Finish(job, true, "the piece is copied through")
+		return out, err
+	}
+
 	ask, err := e.ask(c, job.ID)
 	if err != nil {
 		return out, err
