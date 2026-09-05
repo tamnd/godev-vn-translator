@@ -202,12 +202,41 @@ func fences(body string) []Fence {
 				strings.TrimRight(trimmed, string(marker[0])) == "" {
 				break
 			}
-			buf = append(buf, strings.TrimPrefix(lines[j], indent))
+			buf = append(buf, undent(lines[j], indent))
 		}
 		out = append(out, Fence{Info: m[3], Body: strings.Join(buf, "\n"), Line: i + 1})
 		i = j
 	}
 	return out
+}
+
+// undent takes a fenced block's own indentation off one of its lines.
+//
+// A block indented to sit inside a list item carries that indentation on every
+// line, and none of it is part of the code. Markdown takes off up to the amount
+// on the opening marker, and a line that has less than that loses what it has
+// rather than keeping it.
+//
+// This was TrimPrefix, which is the same thing for a line that is indented at
+// least as far as its marker, and that is every line of every block in the
+// English. It is not every line of what comes back. A tutorial step is a
+// numbered list, its code block is indented four spaces to sit in the item, and
+// what returns is the body still indented and the comment lines in it moved out
+// to one space or none. The English then stripped four and the answer stripped
+// nothing, so L06 compared "// SumIntsOrFloats sums the values" against
+// " // SumIntsOrFloats tinh tong" and refused a block that was otherwise the
+// English character for character.
+//
+// Only spaces and tabs are taken, and only where the two agree byte for byte,
+// because a tab is not some number of spaces here and guessing which would put
+// a difference into the comparison rather than take one out.
+func undent(line, indent string) string {
+	i := 0
+	for i < len(indent) && i < len(line) && line[i] == indent[i] &&
+		(line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	return line[i:]
 }
 
 // insideFence marks the lines of the body that are code, so headings and links

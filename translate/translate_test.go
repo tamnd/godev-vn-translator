@@ -1002,3 +1002,46 @@ func TestUnmangleFixesAnEntityTabBeforeItLooksAtTheIndent(t *testing.T) {
 		t.Errorf("unmangle\n got %q\nwant %q", got, english)
 	}
 }
+
+// The other half of the same damage. A tutorial step is a numbered list and its
+// code block is indented four spaces to sit in the item, markers and body
+// alike. What comes back has the body still indented and the two markers pulled
+// out to column zero, so the block reads as a top level fence whose every line
+// begins with four spaces, and L06 refuses code that is character for character
+// the English. Putting the marker indent back fixes every line at once.
+func TestReindentPutsBackTheIndentOfAFenceMarker(t *testing.T) {
+	for _, tt := range []struct {
+		name, answer, english, want string
+	}{
+		{
+			name:    "both markers came back at column zero",
+			english: "1. Paste this.\n\n    ```\n    type Number interface {\n        int64 | float64\n    }\n    ```\n",
+			answer:  "1. Dan doan nay.\n\n```\n    type Number interface {\n        int64 | float64\n    }\n```\n",
+			want:    "1. Dan doan nay.\n\n    ```\n    type Number interface {\n        int64 | float64\n    }\n    ```\n",
+		},
+		{
+			name:    "the whole block came out of the list item",
+			english: "1. Paste this.\n\n    ```\n    func f() {\n    ```\n",
+			answer:  "1. Dan doan nay.\n\n```\nfunc f() {\n```\n",
+			want:    "1. Dan doan nay.\n\n    ```\n    func f() {\n    ```\n",
+		},
+		{
+			name:    "an unindented block is left where it is",
+			english: "```\n$ go run .\n```\n",
+			answer:  "```\n$ go run .\n```\n",
+			want:    "```\n$ go run .\n```\n",
+		},
+		{
+			name:    "a block that gained a line is left to the gate",
+			english: "1. Paste this.\n\n    ```\n    func f() {\n    ```\n",
+			answer:  "1. Dan doan nay.\n\n```\nfunc f() {\n    return\n```\n",
+			want:    "1. Dan doan nay.\n\n```\nfunc f() {\n    return\n```\n",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := reindent(tt.answer, tt.english); got != tt.want {
+				t.Errorf("reindent\n got %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
