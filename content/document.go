@@ -87,7 +87,7 @@ var (
 	// never looked at any of the 77 because FrontMatterKeys returned nothing for
 	// all of them. A rule that reports nothing may be blind rather than satisfied.
 	jsonFrontMatterRE = regexp.MustCompile(`(?s)\A<!--\{.*?\}-->[ \t]*\r?\n?`)
-	headingRE     = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*$`)
+	headingRE         = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*$`)
 	// presentHeadingRE is the same thing for present(1), which the .article and
 	// .slide files are written in. A section there opens with a star and not a
 	// hash, and a line that opens with a hash is a comment, which is the exact
