@@ -730,6 +730,20 @@ func unmangle(text, english string) string {
 // its text is meant to differ and there is nothing left to compare the indent
 // against. L06 catches that one, which is the right outcome for a case this
 // cannot prove.
+//
+// The fence markers are repaired too, and that is the other half of the same
+// damage. A tutorial step is a numbered list and the code block inside it is
+// indented four spaces to sit in the list item, markers and body alike. What
+// comes back has the body still indented and the two markers pulled out to
+// column zero, so the block reads as a top level fence whose every line begins
+// with four spaces. Parse strips a fenced block's body by the indent of its
+// opening marker, which is what makes this visible: the English strips four
+// from four and yields `type Number interface {`, the answer strips nothing
+// from four and yields `    type Number interface {`, and L06 refuses a block
+// that is character for character the English. Putting the English indent back
+// on the two marker lines fixes every line of the block at once, including the
+// translated comments the body loop deliberately will not touch, because after
+// it the same four spaces come off both sides.
 func reindent(text, english string) string {
 	lines, en := strings.Split(text, "\n"), strings.Split(english, "\n")
 	blocks, want := fenced(lines), fenced(en)
@@ -744,6 +758,17 @@ func reindent(text, english string) string {
 			// there is no line to line correspondence left to repair against.
 			continue
 		}
+		// The marker lines first. a[0]-1 opens the block and a[1] closes it,
+		// and both are known to exist because fenced only reports a block it
+		// has seen both ends of.
+		for _, m := range [][2]int{{a[0] - 1, b[0] - 1}, {a[1], b[1]}} {
+			line, was := lines[m[0]], en[m[1]]
+			if indentOf(line) == indentOf(was) {
+				continue
+			}
+			lines[m[0]] = indentOf(was) + strings.TrimLeft(line, " \t")
+			changed = true
+		}
 		for j := 0; j < a[1]-a[0]; j++ {
 			line, was := lines[a[0]+j], en[b[0]+j]
 			if line == was {
@@ -753,7 +778,7 @@ func reindent(text, english string) string {
 			if body != strings.TrimLeft(was, " \t") {
 				continue
 			}
-			lines[a[0]+j] = was[:len(was)-len(strings.TrimLeft(was, " \t"))] + body
+			lines[a[0]+j] = indentOf(was) + body
 			changed = true
 		}
 	}
@@ -761,6 +786,13 @@ func reindent(text, english string) string {
 		return text
 	}
 	return strings.Join(lines, "\n")
+}
+
+// indentOf is the leading spaces and tabs of a line, kept as they were written
+// rather than counted, because a tab and eight spaces are not the same bytes
+// and L06 compares bytes.
+func indentOf(line string) string {
+	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
 }
 
 // fenced returns the half open line range of each fenced block's body, in order.

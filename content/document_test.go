@@ -360,3 +360,52 @@ func TestNoFrontMatter(t *testing.T) {
 		t.Errorf("body is %q, want the whole file", doc.Body)
 	}
 }
+
+// A code block inside a list item is indented to sit in the item, and none of
+// that indentation is part of the code. The parser used to take it off with
+// TrimPrefix, which is the same thing for a line indented at least as far as
+// its marker and nothing at all for a line indented less, so a block whose
+// comments came back at one space kept the space where the English lost four
+// and L06 refused a block that was otherwise the English character for
+// character.
+func TestAFenceLineIndentedLessThanItsMarker(t *testing.T) {
+	for _, tt := range []struct {
+		name, body, want string
+	}{
+		{
+			name: "every line is indented as far as the marker",
+			body: "1. Paste this.\n\n    ```\n    func f() {\n        return\n    }\n    ```\n",
+			want: "func f() {\n    return\n}",
+		},
+		{
+			name: "a line came back with one space instead of four",
+			body: "1. Paste this.\n\n    ```\n // sums the values\n    func f() {\n    ```\n",
+			want: "// sums the values\nfunc f() {",
+		},
+		{
+			name: "a line came back with no indent at all",
+			body: "1. Paste this.\n\n    ```\n// sums the values\n    func f() {\n    ```\n",
+			want: "// sums the values\nfunc f() {",
+		},
+		{
+			name: "an unindented block keeps its own leading space",
+			body: "```\n    func f() {\n```\n",
+			want: "    func f() {",
+		},
+		{
+			name: "a tab indent is not read as some number of spaces",
+			body: "\t```\n    func f() {\n\t```\n",
+			want: "    func f() {",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := Parse(KindMarkdown, tt.body)
+			if len(doc.Fences) != 1 {
+				t.Fatalf("got %d fences, want 1", len(doc.Fences))
+			}
+			if doc.Fences[0].Body != tt.want {
+				t.Errorf("body\n got %q\nwant %q", doc.Fences[0].Body, tt.want)
+			}
+		})
+	}
+}
