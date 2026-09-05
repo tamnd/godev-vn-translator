@@ -565,3 +565,61 @@ Văn xuôi.
 		t.Errorf("got %d findings for a slide missing a section, want 1", len(f))
 	}
 }
+
+// TestTransport is a defect that reached a merged file.
+//
+// blog/go-slices-usage-and-internals.md is a two line redirect stub, and a run
+// left an OpenAI error page underneath it. Nothing else here could have caught
+// it: it was a short answer to a short piece, so L03 had nothing to call
+// truncation against, and every other rule compares a translation to its
+// English and has no reason to object to a sentence.
+func TestTransport(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		en   string
+		vi   string
+		want int
+	}{
+		{
+			"the page that shipped",
+			"---\nredirect: /blog/slices-intro\n---\n",
+			"---\nredirect: /blog/slices-intro\n---\n\nSomething went wrong. If this issue persists please contact us through our help center at help.openai.com.\n",
+			1,
+		},
+		{
+			"a banner stuck to the end of a real translation",
+			"Go is an open source programming language.\n",
+			"Go là một ngôn ngữ lập trình mã nguồn mở.\n\nHmm...something seems to have gone wrong.\n",
+			1,
+		},
+		{
+			// survey2024-h2-results.md names ChatGPT and Copilot and reports
+			// satisfaction scores for them. Naming a product is not being one.
+			"a page about the products is content",
+			"The most commonly used AI assistants were ChatGPT (68%) and GitHub Copilot (50%).\n",
+			"Các trợ lý AI được sử dụng phổ biến nhất là ChatGPT (68%) và GitHub Copilot (50%).\n",
+			0,
+		},
+		{
+			// The English is the ground truth, the same as it is in unmangle.
+			// Both sides saying it makes it the passage and not a failure.
+			"a page that quotes a banner is content",
+			"An error page reading Conversation not found is not a 404.\n",
+			"Một trang lỗi ghi Conversation not found không phải là một 404.\n",
+			0,
+		},
+		{
+			"an ordinary translation",
+			"Run `go install` first.\n",
+			"Chạy `go install` trước.\n",
+			0,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := check(t, ruleTransport, tt.en, tt.vi)
+			if len(got) != tt.want {
+				t.Fatalf("got %d findings, want %d: %v", len(got), tt.want, got)
+			}
+		})
+	}
+}

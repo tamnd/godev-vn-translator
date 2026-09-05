@@ -1096,3 +1096,86 @@ func escapeLine(body, mark string) int {
 	}
 	return 0
 }
+
+// L17. The route answered with its own error page and it was stored as a
+// translation.
+//
+// This is the only rule here that is not about a translation. It is about a
+// non-translation that got as far as a merged file, which is worse.
+//
+// blog/go-slices-usage-and-internals.md is a two line redirect stub. A run left
+// this underneath it:
+//
+//	Something went wrong. If this issue persists please contact us through our
+//	help center at help.openai.com.
+//
+// Three of the four routes are a headless browser driving chatgpt.com, so when
+// the web application shows an error instead of an answer the scraper reads the
+// error, and it comes back through the same pipe as everything else. Nothing
+// downstream was broken. The piece was short, the answer was short, so L03 had
+// nothing to call truncation against, and the other sixteen gates compare a
+// translation to its English and had no reason to object to a sentence.
+//
+// The engine now refuses these at the door, in translate.send, which is where
+// the fix belongs, because a banner means the route is down and the job should
+// go to another lane. This rule is what covers everything the door does not: a
+// file written before the door existed, a file somebody pasted, and the next
+// banner, whatever it says, that gets added to the list below after it is seen
+// once. The corpus has none today, and the point of a gate for a defect with no
+// instances is that the one instance it had cost a published page.
+//
+// Refuse and not Notice. There is no reading of an OpenAI error page in the
+// middle of go.dev in Vietnamese where the right response is a note in a report.
+var ruleTransport = Rule{
+	ID: "L17", Name: "transport", Severity: Refuse,
+	Check: func(in Input) []Finding {
+		banner := TransportError(in.VI, in.EN)
+		if banner == "" {
+			return nil
+		}
+		return []Finding{{
+			Line: escapeLine(in.VI, banner),
+			Msg:  fmt.Sprintf("carries %q, which is a route's error page and not a translation", banner),
+		}}
+	},
+}
+
+// banners are the things a web application says when it is not answering.
+//
+// Each of these is a sentence from a product and not a sentence from a
+// document, which is what makes matching them safe. The corpus does discuss the
+// products: three of the survey posts name ChatGPT and Copilot, and one reports
+// satisfaction scores for them. None of them says any of these.
+var banners = []string{
+	"Something went wrong. If this issue persists",
+	"help.openai.com",
+	"You've reached our limit of messages",
+	"You've reached the current usage cap",
+	"There was an error generating a response",
+	"Unusual activity has been detected from your device",
+	"Too many concurrent requests",
+	"Conversation not found",
+	"Our systems are experiencing high load",
+	"Please check back later",
+	"Hmm...something seems to have gone wrong",
+}
+
+// TransportError returns the banner a piece of text is really made of, or "".
+//
+// It is exported because the engine needs the same answer before it stores
+// anything, and one list read by both is the only arrangement where adding the
+// next banner fixes both places.
+//
+// The English is the ground truth here for the same reason it is in
+// translate.unmangle: it is the same passage. A page that quotes one of these
+// strings arrives with it on both sides, and then it is content and not a
+// failure. That has never happened, and the test for it is one line, which is
+// the right price for never having to think about it again.
+func TransportError(text, english string) string {
+	for _, b := range banners {
+		if strings.Contains(text, b) && !strings.Contains(english, b) {
+			return b
+		}
+	}
+	return ""
+}

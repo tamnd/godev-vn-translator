@@ -24,7 +24,7 @@
 //
 // Assemble puts the pieces of a finished file back together, audits the whole
 // thing, and writes it only if nothing refuses. The per piece gates are the
-// fast loop and this is the backstop, because eight of the fifteen rules are
+// fast loop and this is the backstop, because eight of the seventeen rules are
 // about a sequence that runs across a cut and there is no honest way to check
 // those until the file exists.
 //
@@ -496,6 +496,14 @@ func (e *Engine) send(ctx context.Context, client api.Completer, value route.Rou
 	text := unmangle(clean(response.Text), ask.Chunk.Text)
 	if strings.TrimSpace(text) == "" {
 		return "", response.Usage, errors.New("the route answered with nothing")
+	}
+	// A route that has fallen over answers with its own error page, and the
+	// scraper brings it back looking like a translation. That is the route
+	// being down and not the answer being bad, so it fails the route in the
+	// pool and releases the job, and the next attempt goes to a lane that is up.
+	// See quality.TransportError for the page that shipped before this existed.
+	if banner := quality.TransportError(text, ask.Chunk.Text); banner != "" {
+		return "", response.Usage, fmt.Errorf("the route answered with its own error page: %q", banner)
 	}
 	// The blank lines at either end go back on here rather than at assembly,
 	// so that the gates see the bytes that will land in the file. The front

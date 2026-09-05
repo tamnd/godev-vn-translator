@@ -200,7 +200,18 @@ func (e *Engine) gather(rel string, cut []chunk.Chunk) (text string, spans []spa
 			missing++
 			continue
 		}
-		got := fit(answer.Text, c.Text)
+		// unmangle again on the way out of the store, not only on the way in.
+		// An answer that was accepted before unmangle existed is still sitting
+		// in the work directory with the transport's escaping on it, and
+		// assembly is the only place that would put it in a file. It cost a
+		// broken page to learn: blog/inliner.md came back with `//go\:fix` in
+		// its front matter, an escape YAML does not define, and the site would
+		// not start at all until it came out. Nothing had gone wrong at answer
+		// time. The answer was simply older than the repair.
+		//
+		// Running it twice is free. It takes off backslashes the English does
+		// not write, and an answer it has already been over has none left.
+		got := fit(unmangle(answer.Text, c.Text), c.Text)
 		answers[c.Index] = got
 		if answer.Route != "" {
 			routes[answer.Route]++
