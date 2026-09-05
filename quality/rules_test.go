@@ -359,6 +359,36 @@ func TestKeptTerms(t *testing.T) {
 	}
 }
 
+// A term in the second table is one this rule cannot judge. Of the 24 findings
+// it raised for `interface` on the real corpus, every one was the ordinary
+// English noun, and of the 7 for `map`, every one was the verb or a colour map.
+// Thirty one findings, none of them right, burying thirty four that were.
+func TestKeptTermsSkipsContextual(t *testing.T) {
+	g := glossary.Parse("| Thuật ngữ gốc | Bản dịch ưu tiên | Ghi chú |\n" +
+		"| --- | --- | --- |\n" +
+		"| contributor | contributor | Keep unchanged. |\n" +
+		"| Thuật ngữ tùy nghĩa | Bản dịch khi là thuật ngữ Go | Ghi chú |\n" +
+		"| --- | --- | --- |\n" +
+		"| interface | interface | Chỉ giữ nguyên khi là kiểu Go. |\n")
+	run := func(en, vi string) []Finding {
+		return ruleKeptTerms.Check(Input{
+			Pair: content.Pair{Rel: "t.md", Kind: content.KindMarkdown},
+			EN:   en, VI: vi,
+			ENDoc: content.Parse(content.KindMarkdown, en), VIDoc: content.Parse(content.KindMarkdown, vi),
+			Glossary: g,
+		})
+	}
+	// blog/matchlang.md, word for word, and the translation is right.
+	if got := run("in its user interface.", "trong giao diện người dùng của nó."); len(got) != 0 {
+		t.Errorf("a context dependent term must be silent, got %d: %v", len(got), got)
+	}
+	// The row above it in the same file still works, so this is a property of
+	// the table a term came from and not of the rule being switched off.
+	if got := run("a contributor sent a change", "một người đóng góp gửi một thay đổi"); len(got) != 1 {
+		t.Errorf("an ordinary kept term must still be reported, got %d: %v", len(got), got)
+	}
+}
+
 func TestLanguage(t *testing.T) {
 	ascii := strings.Repeat("this is english prose that was never translated. ", 10)
 	count(t, ruleLanguage, ascii, ascii, 1)

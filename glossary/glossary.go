@@ -31,6 +31,16 @@ type Term struct {
 	// Note is the third column, which says why. It is not used by any rule and
 	// it is the most valuable column in the file.
 	Note string
+	// Contextual is set for a term that came out of the second table, the one
+	// for English words that have a Go sense and an ordinary sense.
+	//
+	// `interface` and `map` are the two. The row keeps them in English, and it
+	// means when the page is talking about the Go type. `giao diện` is the right
+	// Vietnamese for a user interface and `bản đồ` is the thing you unfold on a
+	// table, and a page that writes either of those may be perfectly correct.
+	// Nothing here can tell the two senses apart, so the rules that read the
+	// glossary leave these rows alone and a person decides.
+	Contextual bool
 }
 
 // KeepsEnglish reports whether the agreed Vietnamese for this term is the
@@ -77,14 +87,25 @@ func Load(root string) (*Glossary, error) {
 	return g, nil
 }
 
+// contextualHeader is the first column heading of the second table.
+//
+// A table is identified by its own header row rather than by the Markdown
+// heading above it. The header row is already the thing this parser reads to
+// know a row is not a term, it is structure rather than prose, and it sits
+// immediately above the rows it governs, so a table moved to another section of
+// the file keeps its meaning.
+const contextualHeader = "Thuật ngữ tùy nghĩa"
+
 // Parse reads every table row in the document.
 //
-// Every table, not the one under a particular heading. The file has one table
-// today and it will grow a second the first time somebody wants per-section
-// terms, and a parser keyed to a heading would silently ignore it.
+// Every table, not the one under a particular heading. The file has two today,
+// the terms and the context dependent ones, and it will grow a third the first
+// time somebody wants per-section terms. A parser keyed to a heading would
+// silently ignore that third one.
 func Parse(text string) *Glossary {
 	var g Glossary
 	seen := map[string]bool{}
+	contextual := false
 	for line := range strings.SplitSeq(text, "\n") {
 		m := rowRE.FindStringSubmatch(line)
 		if m == nil {
@@ -104,8 +125,13 @@ func Parse(text string) *Glossary {
 		if en == "" || vi == "" || strings.Trim(en, "-: ") == "" {
 			continue
 		}
+		if strings.EqualFold(en, contextualHeader) {
+			contextual = true
+			continue
+		}
 		if strings.EqualFold(en, "Thuật ngữ gốc") || strings.EqualFold(en, "Term") ||
 			strings.EqualFold(en, "English") {
+			contextual = false
 			continue
 		}
 		key := strings.ToLower(en)
@@ -113,7 +139,7 @@ func Parse(text string) *Glossary {
 			continue
 		}
 		seen[key] = true
-		g.Terms = append(g.Terms, Term{EN: en, VI: vi, Note: note})
+		g.Terms = append(g.Terms, Term{EN: en, VI: vi, Note: note, Contextual: contextual})
 	}
 	// Longest first, so that a text carrying "garbage collector" is matched by
 	// that row and not by a shorter "collector" row that happens to be above it.
@@ -159,6 +185,12 @@ func (g *Glossary) Find(en string) (Term, bool) {
 // are left out: they are addressed to a person deciding what the rendering
 // should be, the model is being told what it is, and every character spent on
 // the glossary is a character not spent on the passage.
+//
+// The context dependent rows are the exception, and they get their note. A line
+// reading `map -> map` with nothing beside it is an instruction to leave "map
+// each goroutine to a thread" in English, which is the mistake the row exists
+// to prevent. The condition is the whole content of those two rows, so leaving
+// it out is leaving the row out.
 func (g *Glossary) Prompt() string {
 	if g == nil || len(g.Terms) == 0 {
 		return ""
@@ -171,6 +203,11 @@ func (g *Glossary) Prompt() string {
 		out.WriteString(t.EN)
 		out.WriteString("  ->  ")
 		out.WriteString(t.VI)
+		if t.Contextual && t.Note != "" {
+			out.WriteString("  (")
+			out.WriteString(t.Note)
+			out.WriteString(")")
+		}
 		out.WriteString("\n")
 	}
 	return out.String()
