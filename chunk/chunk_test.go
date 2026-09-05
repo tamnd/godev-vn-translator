@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/tamnd/godev-vn-translator/content"
+	"github.com/tamnd/godev-vn-translator/quality"
 )
 
 // join is the property the whole package rests on.
@@ -158,6 +159,34 @@ func TestASmallSVGIsStillAsked(t *testing.T) {
 		if c.Verbatim {
 			t.Fatalf("copied a %d byte svg instead of translating its title", len(c.Text))
 		}
+	}
+}
+
+// The two packages have to agree about what a chart is. This one decides not to
+// ask about it and quality.Prose decides not to measure it, and if the second
+// number drifts above the first there is a size of chart that is copied through
+// in English and then refused for being in English. There is no shared constant
+// because quality does not depend on this package, so the agreement is asserted
+// here on the behaviour instead.
+func TestQualityIgnoresExactlyTheChartsThisPackageCopies(t *testing.T) {
+	label := "<text><tspan>Weekly</tspan></text>"
+	for _, n := range []int{verbatimMin, verbatimMin * 3} {
+		body := strings.Repeat(label, 1+n/len(label))
+		chart := "<svg width=\"60em\">" + body + "</svg>"
+		if !verbatim(chart) {
+			t.Fatalf("a %d byte chart is not copied, and this test is wrong", len(chart))
+		}
+		if got := quality.Prose("before " + chart + " after"); got != "before after" {
+			t.Errorf("a %d byte chart is copied but still measured as prose: %q", len(chart), got)
+		}
+	}
+	// And the small one is still measured, because it is still asked about.
+	small := "<svg><title>a gopher</title></svg>"
+	if verbatim(small) {
+		t.Fatal("a decorative icon is being copied, and this test is wrong")
+	}
+	if got := quality.Prose("here is " + small + " inline"); !strings.Contains(got, "a gopher") {
+		t.Errorf("the title of an icon this package asks about is not measured: %q", got)
 	}
 }
 
