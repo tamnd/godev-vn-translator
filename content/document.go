@@ -74,6 +74,19 @@ type Link struct {
 
 var (
 	frontMatterRE = regexp.MustCompile(`(?s)\A---\r?\n(.*?)\r?\n---\r?\n`)
+	// jsonFrontMatterRE is the other form, and the corpus has 77 files in it
+	// against 603 in the one above. `doc/`, `ref/` and `solutions/` write their
+	// front matter as a JSON object inside an HTML comment, which is what
+	// golang.org/x/website/internal/web reads there.
+	//
+	// Nothing here knew about it until doc/contrib.md came back from a run with
+	// the tab in front of "Redirect" turned into a space. That file is four lines
+	// long and three of them are the comment, so there was nothing else the model
+	// could have touched. The front matter was never separated into its own
+	// chunk, so it went out inside the body as if it were prose, and L09 had
+	// never looked at any of the 77 because FrontMatterKeys returned nothing for
+	// all of them. A rule that reports nothing may be blind rather than satisfied.
+	jsonFrontMatterRE = regexp.MustCompile(`(?s)\A<!--\{.*?\}-->[ \t]*\r?\n?`)
 	headingRE     = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*$`)
 	// presentHeadingRE is the same thing for present(1), which the .article and
 	// .slide files are written in. A section there opens with a star and not a
@@ -115,6 +128,12 @@ func Parse(kind Kind, text string) Document {
 	if m := frontMatterRE.FindStringSubmatch(text); m != nil {
 		doc.FrontMatter = m[1]
 		doc.Body = text[len(m[0]):]
+	} else if m := jsonFrontMatterRE.FindString(text); m != "" {
+		// The braces are kept, unlike the `---` fences above, because they are
+		// what FrontMatterKeys reads the form off. The comment markers are not,
+		// because they are the delimiter and the fences are not kept either.
+		doc.FrontMatter = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(m), "<!--"), "-->")
+		doc.Body = text[len(m):]
 	}
 	doc.Fences = fences(doc.Body)
 	doc.Headings = headings(doc.Body, kind)
@@ -369,9 +388,35 @@ func blocks(body string) []string {
 // model is told one thing and judged by another.
 var VerbatimKeys = []string{"date", "by", "tags", "layout", "template", "redirect", "series"}
 
+// jsonKeyRE matches one top level key of the JSON form. Every value in the 77
+// files is a string or a bool, none is an object or an array, so a line is
+// either a key or a brace and there is no nesting to track. A value that ever
+// grows an object would need a real parser, and this returns the outer key
+// twice rather than quietly returning the inner one, which is a wrong answer
+// that a test would see.
+var jsonKeyRE = regexp.MustCompile(`(?m)^\s*"([^"]+)"\s*:`)
+
+// isJSONFrontMatter reports the form. Parse keeps the braces on the JSON one
+// and strips the fences off the YAML one, so the first character says which.
+//
+// The comment marker is allowed in front of it because chunk hands these
+// functions the whole matched block, delimiters and all, which is what makes
+// its concatenation exact. Both callers have to get the same answer.
+func isJSONFrontMatter(frontMatter string) bool {
+	s := strings.TrimSpace(frontMatter)
+	return strings.HasPrefix(s, "{") || strings.HasPrefix(s, "<!--{")
+}
+
 // FrontMatterKeys lists the top level keys of the front matter in the order
 // they are written, which is the order a gate compares them in.
 func FrontMatterKeys(frontMatter string) []string {
+	if isJSONFrontMatter(frontMatter) {
+		var out []string
+		for _, m := range jsonKeyRE.FindAllStringSubmatch(frontMatter, -1) {
+			out = append(out, m[1])
+		}
+		return out
+	}
 	var out []string
 	for line := range strings.SplitSeq(frontMatter, "\n") {
 		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") ||
@@ -388,13 +433,35 @@ func FrontMatterKeys(frontMatter string) []string {
 }
 
 // FrontMatterValue returns the raw value of one top level key.
+//
+// The key is matched without regard to case, which changes nothing on the YAML
+// form because every key there is lowercase and so is every name in
+// VerbatimKeys. It is the JSON form that needs it: those files write `Redirect`
+// and `Template`, and an exact match would have the verbatim value check in L09
+// find no key and say nothing on all 77 of them, which is the same silence the
+// rule was already keeping for a different reason. A key whose case moved
+// between the English and the Vietnamese is caught by the key list check, which
+// is exact, so nothing is lost by being lenient here.
 func FrontMatterValue(frontMatter, key string) (string, bool) {
+	if isJSONFrontMatter(frontMatter) {
+		for _, m := range jsonKeyRE.FindAllStringSubmatchIndex(frontMatter, -1) {
+			if !strings.EqualFold(frontMatter[m[2]:m[3]], key) {
+				continue
+			}
+			rest := frontMatter[m[1]:]
+			if i := strings.IndexByte(rest, '\n'); i >= 0 {
+				rest = rest[:i]
+			}
+			return strings.TrimSuffix(strings.TrimSpace(rest), ","), true
+		}
+		return "", false
+	}
 	for line := range strings.SplitSeq(frontMatter, "\n") {
 		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
 			continue
 		}
 		k, v, ok := strings.Cut(line, ":")
-		if ok && strings.TrimSpace(k) == key {
+		if ok && strings.EqualFold(strings.TrimSpace(k), key) {
 			return strings.TrimSpace(v), true
 		}
 	}

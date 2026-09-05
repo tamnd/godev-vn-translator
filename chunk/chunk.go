@@ -161,6 +161,24 @@ func frontMatterIsAllVerbatim(block string) bool {
 // Keeping the delimiters in the chunk is what makes the concatenation exact.
 var frontMatterRE = regexp.MustCompile(`(?s)\A---\r?\n.*?\r?\n---[ \t]*\r?\n`)
 
+// jsonFrontMatterRE is the same thing for the JSON object inside an HTML
+// comment that `doc/`, `ref/` and `solutions/` use. 77 files in the corpus.
+//
+// doc/contrib.md is four lines long and three of them are that comment. It came
+// back from a run with the tab in front of "Redirect" turned into a space,
+// because the block was never separated and went out inside the body as prose.
+// The file is a redirect and there was nothing in it to translate at all.
+var jsonFrontMatterRE = regexp.MustCompile(`(?s)\A<!--\{.*?\}-->[ \t]*\r?\n?`)
+
+// frontMatter returns the leading block in whichever of the two forms the file
+// uses, and the empty string when it has neither.
+func frontMatter(text string) string {
+	if m := frontMatterRE.FindString(text); m != "" {
+		return m
+	}
+	return jsonFrontMatterRE.FindString(text)
+}
+
 // Split cuts one file up. budget of zero or less means DefaultBudget.
 func Split(rel string, kind content.Kind, text string, budget int) []Chunk {
 	if budget <= 0 {
@@ -168,7 +186,7 @@ func Split(rel string, kind content.Kind, text string, budget int) []Chunk {
 	}
 	var out []Chunk
 	body := text
-	if m := frontMatterRE.FindString(text); m != "" {
+	if m := frontMatter(text); m != "" {
 		out = append(out, Chunk{Rel: rel, Kind: kind, Part: PartFrontMatter, Text: m,
 			Verbatim: frontMatterIsAllVerbatim(m)})
 		body = text[len(m):]
