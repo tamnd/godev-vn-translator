@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/tamnd/godev-vn-translator/publish"
 	"github.com/tamnd/godev-vn-translator/quality"
+	"github.com/tamnd/godev-vn-translator/site"
 )
 
 // runPublish exports the site to a directory a static host can serve.
@@ -21,7 +23,7 @@ import (
 func runPublish(ctx context.Context, root string, args []string) error {
 	fs := flag.NewFlagSet("publish", flag.ExitOnError)
 	out := fs.String("out", "dist", "write the export here, relative to the checkout")
-	host := fs.String("host", "godev-vn.tamnd.com", "the hostname the export will be served under")
+	host := fs.String("host", "", "override the canonical host in SITE.md")
 	addr := fs.String("addr", "127.0.0.1:8099", "run the site on this address during the export")
 	max := fs.Int("max", -1, "allow up to this many refusals before refusing to publish")
 	skipAudit := fs.Bool("no-audit", false, "export without running the gates first")
@@ -43,12 +45,28 @@ func runPublish(ctx context.Context, root string, args []string) error {
 		}
 	}
 
+	// The addresses come from the checkout, not from this tool. Moving the site
+	// to a new domain is then a pull request against the content and not a
+	// release of the translator, which is the same arrangement GLOSSARY.md and
+	// translations.json are under. The flag stays for a one-off export to a
+	// preview host, and it overrides only which host is canonical: the other
+	// names the deploy answers on are a fact about the deploy either way.
+	conf, err := site.Load(root)
+	if err != nil {
+		return err
+	}
+	canonical := conf.Host()
+	if strings.TrimSpace(*host) != "" {
+		canonical = strings.TrimSpace(*host)
+	}
 	res, err := publish.Run(ctx, publish.Options{
-		Root: root,
-		Out:  *out,
-		Host: *host,
-		Addr: *addr,
-		Log:  func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
+		Root:        root,
+		Out:         *out,
+		Host:        canonical,
+		Redirecting: conf.Redirecting(),
+		Waiting:     conf.Waiting(),
+		Addr:        *addr,
+		Log:         func(format string, args ...any) { fmt.Fprintf(os.Stderr, format+"\n", args...) },
 	})
 	if err != nil {
 		return err

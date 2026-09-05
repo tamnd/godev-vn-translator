@@ -42,6 +42,17 @@ type Options struct {
 	// Host is the hostname the site will be served under. Absolute go.dev
 	// references in the HTML are rewritten to it.
 	Host string
+	// Redirecting are the other hostnames the same deploy answers on, each of
+	// which sends a reader to Host permanently. One deploy serving several
+	// names is how the move to a new domain stays a DNS record and a setting:
+	// the names are all pointed at the same project, and which of them is real
+	// is decided here rather than by which one has the files.
+	Redirecting []string
+	// Waiting are hostnames that serve the placeholder page rather than the
+	// site or a redirect. A domain that is bought and not moved to yet should
+	// say so to anyone who types it, which is not the same as being parked and
+	// is not the same as pretending to be the site.
+	Waiting []string
 	// Addr is the loopback address to run the site on during the export.
 	Addr string
 	// Log receives one line per notable event. Nil is silence.
@@ -126,7 +137,13 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if err := c.tour(ctx); err != nil {
 		return c.result(), err
 	}
+	if err := c.writePlaceholder(); err != nil {
+		return c.result(), err
+	}
 	if err := c.writeRedirects(); err != nil {
+		return c.result(), err
+	}
+	if err := c.writeHeaders(); err != nil {
 		return c.result(), err
 	}
 	return c.result(), nil
@@ -481,8 +498,24 @@ func start(ctx context.Context, opts Options) (string, func(), error) {
 // rather than with the meta refresh stub that is there for GitHub Pages.
 func (c *crawl) writeRedirects() error {
 	var b strings.Builder
-	b.WriteString("# Written by godev publish. Do not edit.\n\n")
-	b.WriteString("# Served by a program on go.dev, not by a file here.\n")
+	b.WriteString("# Written by godev publish. Do not edit.\n")
+	// The host rules go first. Pages takes the first line that matches, and a
+	// path rule below would otherwise answer for a request to a host that is
+	// only meant to redirect: somebody typing godev.vn/pkg/fmt while the domain
+	// is waiting would be sent to go.dev rather than told where the site is.
+	if len(c.opts.Waiting) > 0 {
+		b.WriteString("\n# Bought, pointed here, and not the address yet. See SITE.md.\n")
+		for _, host := range c.opts.Waiting {
+			fmt.Fprintf(&b, "https://%s/* /%s 200\n", host, placeholderFile)
+		}
+	}
+	if len(c.opts.Redirecting) > 0 {
+		b.WriteString("\n# Other names for this deploy. The real one is in SITE.md.\n")
+		for _, host := range c.opts.Redirecting {
+			fmt.Fprintf(&b, "https://%s/* https://%s/:splat 301\n", host, c.opts.Host)
+		}
+	}
+	b.WriteString("\n# Served by a program on go.dev, not by a file here.\n")
 	for _, prefix := range ProxyPrefixes {
 		fmt.Fprintf(&b, "%s https://go.dev%s 302\n", prefix, prefix)
 		fmt.Fprintf(&b, "%s/* https://go.dev%s/:splat 302\n", prefix, prefix)
@@ -500,4 +533,82 @@ func (c *crawl) writeRedirects() error {
 		}
 	}
 	return c.write("_redirects", []byte(b.String()))
+}
+
+// placeholderFile is where the page for a bought and unmoved domain lands.
+//
+// A real path and not the root, because the root is the site. A host in Waiting
+// is rewritten onto it for every path it is asked for, so somebody who follows a
+// deep link into the future domain gets the explanation rather than a 404.
+const placeholderFile = "placeholder.html"
+
+// writePlaceholder writes the page a domain shows while it is waiting.
+//
+// It is written whether or not any host is waiting, because it costs 900 bytes
+// and because the alternative is that the file appears on the deploy where the
+// redirect table first references it, which is the deploy where nobody is
+// looking at it yet.
+func (c *crawl) writePlaceholder() error {
+	host := c.opts.Host
+	page := "<!DOCTYPE html>\n" +
+		"<html lang=\"vi\">\n<head>\n" +
+		"<meta charset=\"utf-8\">\n" +
+		"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
+		"<title>go.dev tiếng Việt</title>\n" +
+		"<meta name=\"robots\" content=\"noindex\">\n" +
+		"<link rel=\"canonical\" href=\"https://" + html.EscapeString(host) + "/\">\n" +
+		"<style>\n" +
+		"body{font-family:system-ui,sans-serif;line-height:1.6;margin:0 auto;padding:3rem 1.5rem;max-width:34rem;color:#1a1a1a}\n" +
+		"a{color:#007d9c}\n" +
+		"</style>\n" +
+		"</head>\n<body>\n" +
+		"<h1>go.dev tiếng Việt</h1>\n" +
+		"<p>Tên miền này dành cho bản tiếng Việt của go.dev. Trang web đang chạy tại\n" +
+		"<a href=\"https://" + html.EscapeString(host) + "/\">" + html.EscapeString(host) + "</a>\n" +
+		"và sẽ chuyển về đây khi sẵn sàng.</p>\n" +
+		"<p>Bản dịch là mã nguồn mở tại\n" +
+		"<a href=\"https://github.com/tamnd/godev-vn\">github.com/tamnd/godev-vn</a>.</p>\n" +
+		"</body>\n</html>\n"
+	return c.write(placeholderFile, []byte(page))
+}
+
+// writeHeaders writes the table Cloudflare Pages reads for response headers.
+//
+// Two decisions in it. HTML is revalidated on every request, because a
+// documentation site's whole value is that the page you are reading is the
+// current one, and a translation that lands in the morning being served from a
+// cache until the afternoon is the failure mode nobody notices. The assets get
+// an hour, which is long enough to matter on a page that loads a dozen of them
+// and short enough that a stylesheet change is not stuck.
+//
+// The asset paths are not content addressed on this site. `/css/styles.css` is
+// the real name of the real file and it keeps that name across deploys, so the
+// year-long immutable caching that a hashed asset pipeline earns would be wrong
+// here and would strand a reader on last month's layout.
+//
+// The security headers are the two that cost nothing. There is deliberately no
+// Content-Security-Policy: the tour runs a compiler in a web worker and the
+// playground posts to another origin, and a policy written without being able
+// to load either of those is a policy that breaks them.
+func (c *crawl) writeHeaders() error {
+	const table = `# Written by godev publish. Do not edit.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Cache-Control: public, max-age=0, must-revalidate
+
+/css/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+
+/js/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+
+/fonts/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=604800
+
+/images/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=604800
+`
+	return c.write("_headers", []byte(table))
 }

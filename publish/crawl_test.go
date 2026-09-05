@@ -181,3 +181,85 @@ func TestWriteRedirects(t *testing.T) {
 		t.Error("the recorded redirects are not sorted, so the file churns between runs")
 	}
 }
+
+// TestWriteRedirectsHosts is the domain move, seen from the redirect table. The
+// host rules have to come out above the path rules, because Pages takes the
+// first line that matches and a bare /tour/lesson/ would otherwise answer for a
+// request to a host that is only meant to redirect.
+func TestWriteRedirectsHosts(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	c.opts.Redirecting = []string{"godev-vn.pages.dev"}
+	c.opts.Waiting = []string{"godev.vn"}
+	if err := c.writeRedirects(); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, c.out, "_redirects")
+	wait := "https://godev.vn/* /placeholder.html 200"
+	send := "https://godev-vn.pages.dev/* https://godev-vn.tamnd.com/:splat 301"
+	for _, want := range []string{wait, send} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("_redirects has no line %q:\n%s", want, got)
+		}
+	}
+	if strings.Index(got, send) > strings.Index(got, "/tour/lesson/") {
+		t.Error("a host rule is below a path rule, so the path rule answers first")
+	}
+}
+
+// A checkout that names one address writes no host rules at all, which is the
+// state a site with one address should be in.
+func TestWriteRedirectsOneHost(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	if err := c.writeRedirects(); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, c.out, "_redirects"); strings.Contains(got, "https://godev-vn.tamnd.com") {
+		t.Errorf("_redirects sends the only host to itself:\n%s", got)
+	}
+}
+
+func TestWritePlaceholder(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	if err := c.writePlaceholder(); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, c.out, placeholderFile)
+	// It points at the site rather than being one, it says so in Vietnamese,
+	// and it keeps itself out of a search index so that the domain's first
+	// impression in a search result is not a holding page.
+	for _, want := range []string{
+		`href="https://godev-vn.tamnd.com/"`,
+		`<html lang="vi">`,
+		`name="robots" content="noindex"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the placeholder page has no %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestWriteHeaders(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	if err := c.writeHeaders(); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, c.out, "_headers")
+	// HTML revalidates every time and assets do not, which is the whole
+	// decision in the file.
+	for _, want := range []string{
+		"Cache-Control: public, max-age=0, must-revalidate",
+		"/css/*",
+		"X-Content-Type-Options: nosniff",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("_headers has no %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Content-Security-Policy") {
+		t.Error("a policy written blind breaks the tour and the playground")
+	}
+}
