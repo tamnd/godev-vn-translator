@@ -123,7 +123,23 @@ func stripFences(text string) string {
 // that belongs to the page from one that belongs to a longer phrase the
 // glossary keeps in English. Indices are into the lowercased text.
 func wordSpans(text, term string) [][2]int {
-	text, term = strings.ToLower(text), strings.ToLower(strings.TrimSpace(term))
+	return wordSpansFold(text, term, true)
+}
+
+// wordSpansFold is wordSpans with the case folding made a choice.
+//
+// Every rule but L16 wants it folded, because a term at the start of a sentence
+// is the same term. L16 wants it exact on the rows written in capitals: the
+// glossary keeps `AUTHORS` and `CONTRIBUTORS` because they are the names of two
+// files in the Go repository, and folded matching makes those rows fire on the
+// ordinary English word "contributors", which is a different thing that talks
+// use in nearly every deck.
+func wordSpansFold(text, term string, fold bool) [][2]int {
+	if fold {
+		text, term = strings.ToLower(text), strings.ToLower(strings.TrimSpace(term))
+	} else {
+		term = strings.TrimSpace(term)
+	}
 	if term == "" {
 		return nil
 	}

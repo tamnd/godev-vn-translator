@@ -306,6 +306,59 @@ func TestTerminologyGloss(t *testing.T) {
 	}
 }
 
+// TestKeptTerms is the other half of the glossary, which nothing read until
+// L16. A term the table keeps in English, translated anyway, passed every one
+// of the fifteen gates.
+func TestKeptTerms(t *testing.T) {
+	g := glossary.Parse("| interface | interface | |\n" +
+		"| garbage collector | bộ thu gom rác | |\n" +
+		"| CONTRIBUTORS | CONTRIBUTORS | |\n")
+	run := func(en, vi string) []Finding {
+		return ruleKeptTerms.Check(Input{
+			Pair: content.Pair{Rel: "t.md", Kind: content.KindMarkdown},
+			EN:   en, VI: vi,
+			ENDoc: content.Parse(content.KindMarkdown, en), VIDoc: content.Parse(content.KindMarkdown, vi),
+			Glossary: g,
+		})
+	}
+
+	// The September run, in one line. The glossary keeps interface because it
+	// is the Go type and giao diện is a user interface.
+	if got := run("a type satisfies an interface", "một kiểu thỏa mãn một giao diện"); len(got) != 1 {
+		t.Errorf("a kept term translated away must be reported, got %d: %v", len(got), got)
+	}
+	if got := run("a type satisfies an interface", "một kiểu thỏa mãn một interface"); len(got) != 0 {
+		t.Errorf("a kept term kept must be silent, got %d", len(got))
+	}
+	// Said once out of three is a translation, not a page that lost the term.
+	// The test is never, and never is what fires.
+	if got := run("an interface, an interface, an interface", "một interface, hai cái kia"); len(got) != 0 {
+		t.Errorf("saying it fewer times must be silent, got %d", len(got))
+	}
+	// L10's half of the table is not this rule's business.
+	if got := run("the garbage collector runs", "bộ thu gom rác chạy"); len(got) != 0 {
+		t.Errorf("a term with a Vietnamese rendering is L10's, got %d", len(got))
+	}
+	// A term the English never says is nothing to report.
+	if got := run("a slice wraps an array", "một slice bọc một mảng"); len(got) != 0 {
+		t.Errorf("a term the English does not use must be silent, got %d", len(got))
+	}
+	// Inline code is not prose, on both sides. A page that says the term only
+	// in code has still said it.
+	if got := run("a type satisfies an interface", "một kiểu thỏa mãn `interface`"); len(got) != 0 {
+		t.Errorf("code is stripped from both sides, so this must be silent, got %d", len(got))
+	}
+
+	// The capitals rows are filenames. Folding the case makes them fire on the
+	// ordinary English noun, which nearly every talk uses.
+	if got := run("contributors work at tip", "người đóng góp làm việc ở đầu ngọn"); len(got) != 0 {
+		t.Errorf("the plural noun is not the CONTRIBUTORS file, got %d: %v", len(got), got)
+	}
+	if got := run("add yourself to CONTRIBUTORS", "thêm tên bạn vào danh sách"); len(got) != 1 {
+		t.Errorf("the filename itself must be reported, got %d: %v", len(got), got)
+	}
+}
+
 func TestLanguage(t *testing.T) {
 	ascii := strings.Repeat("this is english prose that was never translated. ", 10)
 	count(t, ruleLanguage, ascii, ascii, 1)

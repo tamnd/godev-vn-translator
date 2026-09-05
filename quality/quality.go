@@ -133,6 +133,7 @@ func Rules() []Rule {
 		ruleStale,
 		ruleEscaping,
 		ruleComments,
+		ruleKeptTerms,
 	}
 }
 
