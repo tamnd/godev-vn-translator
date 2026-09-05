@@ -652,6 +652,16 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 			"ký tự U+FFFD '�' bắt đầu ở vị trí byte 6",
 		},
 		{
+			// The one that took the site down. A colon escaped inside a double
+			// quoted YAML scalar is not an escape YAML defines, so the front
+			// matter did not parse, so cmd/golangorg would not start and the
+			// export had nothing to crawl. One character, whole site.
+			"an escaped colon in front matter",
+			`title: "//go:fix inline and the source-level inliner"`,
+			`title: "//go\:fix inline và trình nội tuyến cấp mã nguồn"`,
+			`title: "//go:fix inline và trình nội tuyến cấp mã nguồn"`,
+		},
+		{
 			"an answer with nothing wrong with it is untouched",
 			"See [the docs](/doc/) for **more**.",
 			"Xem [tài liệu](/doc/) để biết **thêm**.",
@@ -661,6 +671,64 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := unmangle(tt.in, tt.english); got != tt.want {
 				t.Errorf("unmangle\n got %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTransportErrorIsNotATranslation is a defect that shipped.
+//
+// blog/go-slices-usage-and-internals.md is a two line redirect stub, and a run
+// left an OpenAI error page underneath it. Everything downstream was working
+// correctly: it was a short answer to a short piece, so L03 had nothing to call
+// truncation against, and no gate that reads a translation can tell that a
+// sentence is a product apologising rather than a document explaining.
+func TestTransportErrorIsNotATranslation(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		english string
+		answer  string
+		want    bool
+	}{
+		{
+			"the one that shipped",
+			"---\nredirect: /blog/slices-intro\n---\n",
+			"Something went wrong. If this issue persists please contact us through our help center at help.openai.com.",
+			true,
+		},
+		{
+			"a banner with a translation stuck to it",
+			"Go is an open source programming language.",
+			"Go là một ngôn ngữ lập trình mã nguồn mở.\n\nHmm...something seems to have gone wrong.",
+			true,
+		},
+		{
+			// Three of the survey posts name the products and one reports
+			// satisfaction scores for them. Naming a product is not being one.
+			"a page that talks about the product is content",
+			"The most commonly used AI assistants were ChatGPT (68%) and GitHub Copilot (50%).",
+			"Các trợ lý AI được sử dụng phổ biến nhất là ChatGPT (68%) và GitHub Copilot (50%).",
+			false,
+		},
+		{
+			// The English is the ground truth here for the same reason it is in
+			// unmangle. Both sides saying it makes it the passage.
+			"a page that quotes the banner is content",
+			"An error page reading Conversation not found is not a 404.",
+			"Một trang lỗi ghi Conversation not found không phải là một 404.",
+			false,
+		},
+		{
+			"an ordinary translation",
+			"Run `go install` first.",
+			"Chạy `go install` trước.",
+			false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := quality.TransportError(tt.answer, tt.english)
+			if (got != "") != tt.want {
+				t.Errorf("transportError = %q, want a banner: %v", got, tt.want)
 			}
 		})
 	}
