@@ -53,6 +53,17 @@ type Options struct {
 	// say so to anyone who types it, which is not the same as being parked and
 	// is not the same as pretending to be the site.
 	Waiting []string
+	// Mirrors are hostnames that serve these same files with no redirect, which
+	// is the second deploy that exists so one vendor having a bad day is not the
+	// whole site being down. A mirror does not compete with Host in a search
+	// index, because the canonical link tag in every page it serves names Host.
+	//
+	// GitHub Pages takes exactly one custom domain per repository and reads it
+	// out of a CNAME file at the root of what is published, so the first of
+	// these is written there. It has to be a custom domain and not the project
+	// page: tamnd.github.io/godev-vn puts the whole site under a path, and every
+	// absolute reference in the export begins at the root.
+	Mirrors []string
 	// Addr is the loopback address to run the site on during the export.
 	Addr string
 	// Log receives one line per notable event. Nil is silence.
@@ -144,6 +155,9 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		return c.result(), err
 	}
 	if err := c.writeHeaders(); err != nil {
+		return c.result(), err
+	}
+	if err := c.writeCNAME(); err != nil {
 		return c.result(), err
 	}
 	return c.result(), nil
@@ -611,4 +625,31 @@ func (c *crawl) writeHeaders() error {
   Cache-Control: public, max-age=604800, stale-while-revalidate=604800
 `
 	return c.write("_headers", []byte(table))
+}
+
+// writeCNAME names the custom domain for the GitHub Pages mirror.
+//
+// One file with one hostname in it and nothing else, which is the whole of the
+// GitHub Pages custom domain interface. Writing it here rather than committing
+// it to the site repo keeps every hostname this project answers on in SITE.md,
+// which is the only arrangement where moving to a new domain stays one edit.
+//
+// No mirror in SITE.md means no file, and no file means the deploy workflow has
+// nothing to publish to Pages, which is the correct behaviour today: there is no
+// mirror host yet, and publishing to tamnd.github.io/godev-vn would serve a site
+// whose every absolute reference starts at the root of a domain it is not at.
+//
+// The first mirror wins if somebody lists two. GitHub Pages takes one custom
+// domain per repository, so the alternative is refusing the export over a
+// setting nobody can act on from here, and the log line says which one it took.
+func (c *crawl) writeCNAME() error {
+	if len(c.opts.Mirrors) == 0 {
+		return nil
+	}
+	host := c.opts.Mirrors[0]
+	if len(c.opts.Mirrors) > 1 {
+		c.opts.Log("%d mirrors in SITE.md and GitHub Pages takes one, so the CNAME says %s",
+			len(c.opts.Mirrors), host)
+	}
+	return c.write("CNAME", []byte(host+"\n"))
 }
