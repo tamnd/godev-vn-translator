@@ -598,6 +598,15 @@ var ruleFrontMatter = Rule{
 //
 // So is a term that only ever appears inside a longer term the glossary keeps.
 // See leftInEnglish.
+//
+// So is the context dependent table. Those rows are for English words with two
+// senses, and this rule cannot tell which sense a sentence meant any better
+// than L16 can. It happens to report nothing on them today, because both rows
+// in that table render as the English word and so the line above already skips
+// them, but that is an accident of the two rows that are in it. A row whose Go
+// sense is a Vietnamese word would land here and be reported on every ordinary
+// use. GLOSSARY.md tells the reader both rules leave the table alone, and this
+// is the half of that sentence the code was not keeping.
 var ruleTerminology = Rule{
 	ID: "L10", Name: "terminology", Severity: Notice,
 	Check: func(in Input) []Finding {
@@ -607,7 +616,7 @@ var ruleTerminology = Rule{
 		source, answer := Prose(in.EN), Prose(in.VI)
 		var out []Finding
 		for _, t := range in.Glossary.Mentioned(source) {
-			if t.KeepsEnglish() {
+			if t.KeepsEnglish() || t.Contextual {
 				continue
 			}
 			if !leftInEnglish(answer, t, in.Glossary) {

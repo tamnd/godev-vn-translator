@@ -241,6 +241,37 @@ func TestTerminology(t *testing.T) {
 	}
 }
 
+// A row in the second table is one this rule cannot judge either, and unlike
+// L16 the skip is not free. The two rows in the file today keep their English,
+// so KeepsEnglish already covers them and this test would pass without the
+// change. The row below is the shape that would not: a word with two senses
+// whose Go sense is a Vietnamese phrase. Without the skip, every ordinary use
+// of the English word in a page becomes a notice.
+func TestTerminologySkipsContextual(t *testing.T) {
+	g := glossary.Parse("| Thuật ngữ gốc | Bản dịch ưu tiên | Ghi chú |\n" +
+		"| --- | --- | --- |\n" +
+		"| garbage collector | bộ thu gom rác | |\n" +
+		"| Thuật ngữ tùy nghĩa | Bản dịch khi là thuật ngữ Go | Ghi chú |\n" +
+		"| --- | --- | --- |\n" +
+		"| channel | kênh | Chỉ dịch khi là kênh trong Go. |\n")
+	run := func(en, vi string) []Finding {
+		return ruleTerminology.Check(Input{
+			Pair: content.Pair{Rel: "t.md", Kind: content.KindMarkdown},
+			EN:   en, VI: vi,
+			ENDoc: content.Parse(content.KindMarkdown, en), VIDoc: content.Parse(content.KindMarkdown, vi),
+			Glossary: g,
+		})
+	}
+	if got := run("read from the channel", "đọc từ channel"); len(got) != 0 {
+		t.Errorf("a context dependent term must be silent, got %d: %v", len(got), got)
+	}
+	// The row in the first table still fires, so this is a property of the table
+	// and not of the rule being switched off.
+	if got := run("the garbage collector runs", "the garbage collector chạy"); len(got) != 1 {
+		t.Errorf("an ordinary term must still be reported, got %d: %v", len(got), got)
+	}
+}
+
 // TestTerminologyLongerTerm is the release case. "release" is translated and
 // "release candidate" is not, so a page about release candidates says the word
 // "release" in English and is correct.
