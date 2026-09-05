@@ -205,7 +205,7 @@ func (g *Glossary) Prompt() string {
 		out.WriteString(t.VI)
 		if t.Contextual && t.Note != "" {
 			out.WriteString("  (")
-			out.WriteString(t.Note)
+			out.WriteString(firstSentence(t.Note))
 			out.WriteString(")")
 		}
 		out.WriteString("\n")
@@ -224,4 +224,26 @@ func (g *Glossary) Relevant(text string) *Glossary {
 		return nil
 	}
 	return &Glossary{Terms: g.Mentioned(text), Path: g.Path}
+}
+
+// firstSentence is the note cut down to what the model needs.
+//
+// The notes in the file are written for a person and the useful ones are
+// several sentences of evidence: which rendering the corpus settled on, how
+// many times, and which files disagree. That is the right thing in the file and
+// it is four hundred characters of prompt on every chunk that happens to say
+// "interface". The condition is always the first sentence, because that is how
+// the rows are written: "Keep unchanged when it is the Go type", and then the
+// reasons.
+func firstSentence(note string) string {
+	for i, r := range note {
+		if r != '.' {
+			continue
+		}
+		rest := note[i+1:]
+		if rest == "" || strings.HasPrefix(rest, " ") {
+			return note[:i+1]
+		}
+	}
+	return note
 }

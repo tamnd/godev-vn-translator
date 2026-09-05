@@ -17,8 +17,8 @@ const twoTables = `# Translation Glossary
 
 | Thuật ngữ tùy nghĩa | Bản dịch khi là thuật ngữ Go | Ghi chú |
 | --- | --- | --- |
-| interface | interface | Chỉ giữ nguyên khi là kiểu Go. |
-| map | map | Chỉ giữ nguyên khi là kiểu Go. |
+| interface | interface | Keep unchanged when it is the Go type. The corpus writes kiểu interface 97 times against 4. |
+| map | map | Keep unchanged when it is the Go type. bản đồ is a geographic map. |
 `
 
 func TestParseTwoTables(t *testing.T) {
@@ -69,12 +69,35 @@ func TestParseOneTable(t *testing.T) {
 // The condition is the whole content of a context dependent row. A line reading
 // "map -> map" on its own tells the model to leave "map each goroutine" in
 // English, which is the mistake the row exists to prevent.
+//
+// The first sentence and not the note. The notes carry several sentences of
+// evidence for a person to read, and all of that on every chunk that happens to
+// say "interface" is four hundred characters of prompt spent on nothing.
 func TestPromptCarriesTheCondition(t *testing.T) {
 	got := Parse(twoTables).Prompt()
-	if !strings.Contains(got, "map  ->  map  (Chỉ giữ nguyên khi là kiểu Go.)") {
-		t.Errorf("the context dependent row lost its note:\n%s", got)
+	if !strings.Contains(got, "map  ->  map  (Keep unchanged when it is the Go type.)") {
+		t.Errorf("the context dependent row lost its condition:\n%s", got)
+	}
+	if strings.Contains(got, "geographic") {
+		t.Errorf("the whole note went into the prompt, not the condition:\n%s", got)
 	}
 	if strings.Contains(got, "commit  ->  commit  (") {
 		t.Errorf("an ordinary row carried its note, which is prompt spent on nothing:\n%s", got)
+	}
+}
+
+func TestFirstSentence(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"Keep unchanged when it is the Go type. And the reasons.", "Keep unchanged when it is the Go type."},
+		{"One sentence only.", "One sentence only."},
+		{"No full stop at all", "No full stop at all"},
+		{"", ""},
+		// A full stop inside a name is not the end of a sentence, and the notes
+		// are full of them: file names, versions and package paths.
+		{"Written go1.23.4 in the notes. Then more.", "Written go1.23.4 in the notes."},
+	} {
+		if got := firstSentence(c.in); got != c.want {
+			t.Errorf("firstSentence(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
