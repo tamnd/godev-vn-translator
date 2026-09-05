@@ -677,7 +677,7 @@ func checkRules(table string) error {
 			continue
 		}
 		if len(line) > maxRule {
-			return fmt.Errorf("publish: a redirect is %d characters and Pages takes %d: %.80s...", len(line), maxRule, line)
+			return fmt.Errorf("publish: Pages takes %d characters a redirect and this one is %d, starting %.80s", maxRule, len(line), line)
 		}
 		from, _, _ := strings.Cut(line, " ")
 		if strings.Contains(from, "*") || strings.Contains(from, "/:") {
