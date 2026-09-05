@@ -721,6 +721,88 @@ func within(s [2]int, spans [][2]int) bool {
 	return false
 }
 
+// L16. A term the glossary keeps in English was translated anyway.
+//
+// L10 reads the glossary in one direction. It reports a term whose agreed
+// rendering is Vietnamese and which came back in English, and it skips the
+// terms the glossary keeps, because on those there is nothing for it to look
+// for. So the other half of the table has never been checked at all: a page
+// that renders a kept term into Vietnamese passes every one of the fifteen.
+//
+// That is not a corner. `interface` and `map` are the two most common Go type
+// names on the site and the glossary keeps both, because `giao diện` is a user
+// interface and `bản đồ` is the thing you unfold on a table. A run in September
+// brought back "thỏa mãn một giao diện" and "triển khai giao diện
+// encoding.BinaryAppender" and "kiểu giao diện io.Reader" across five files, and
+// the audit said nothing, because the only rule that reads the glossary was
+// looking for the opposite mistake.
+//
+// The test is that the English page says the term and the Vietnamese page never
+// says it. Not fewer times, never: a translation is allowed to say a word twice
+// where the English says it three times, and counting occurrences would report
+// good pages for ordinary rewriting. Saying it zero times when the English
+// leans on it is the shape of a page that translated it.
+//
+// The two sides are read differently and that is deliberate. The English is
+// read as prose, so a term that only ever appears in a code block is not what
+// the page is talking about and does not start the check. The Vietnamese is
+// read whole, because a page that writes the Go type as `interface` in inline
+// code has kept the term, and a rule that stripped the code first would report
+// it for formatting the word correctly.
+//
+// A notice and not a refusal, for the reason L10 is a notice. `interface` in
+// the general sense is a real English word and `giao diện` is the right
+// Vietnamese for it: effective_go.html calls a slice a convenient interface to
+// a sequence of data, and blog/pkgsite-api.md describes a command line
+// interface. Both are correct and both are reported here. A person reads the
+// occurrence and decides which sense it is, which is the one thing a gate
+// cannot do.
+var ruleKeptTerms = Rule{
+	ID: "L16", Name: "kept terms", Severity: Notice,
+	Check: func(in Input) []Finding {
+		if in.Glossary == nil {
+			return nil
+		}
+		source := Prose(in.EN)
+		var out []Finding
+		for _, t := range in.Glossary.Mentioned(source) {
+			if !t.KeepsEnglish() {
+				continue
+			}
+			fold := !shouty(t.EN)
+			said := wordSpansFold(source, t.EN, fold)
+			if len(said) == 0 || len(wordSpansFold(in.VI, t.EN, fold)) > 0 {
+				continue
+			}
+			out = append(out, Finding{Msg: fmt.Sprintf(
+				"never says %q, which the English says %d times and the glossary keeps in English",
+				t.EN, len(said))})
+		}
+		return out
+	},
+}
+
+// shouty reports whether a glossary term is written in capitals throughout.
+//
+// On this table that means it is the name of a file or a constant rather than a
+// word: AUTHORS and CONTRIBUTORS are two files in the Go repository, and the
+// rows exist so that nobody renames them in a translation. Matched with the
+// case folded away they instead fire on the ordinary noun "contributors", which
+// the talks use constantly and which the separate `contributor` row already
+// covers.
+func shouty(term string) bool {
+	upper := false
+	for _, r := range term {
+		if unicode.IsLower(r) {
+			return false
+		}
+		if unicode.IsUpper(r) {
+			upper = true
+		}
+	}
+	return upper
+}
+
 // L11. The Vietnamese is not Vietnamese.
 //
 // A file whose prose carries no tone marks at all is a file that was not
