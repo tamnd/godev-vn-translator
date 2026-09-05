@@ -27,6 +27,7 @@ func Prose(text string) string {
 	text = styleRE.ReplaceAllString(text, " ")
 	text = scriptRE.ReplaceAllString(text, " ")
 	text = preRE.ReplaceAllString(text, " ")
+	text = stripCharts(text)
 	// present links go before Markdown ones. `[[url][text]]` is how a .slide and
 	// an .article write a link, and the Markdown expression cannot see it because
 	// there is no parenthesis in it. The corpus has 401 of them across 56 files,
@@ -75,6 +76,44 @@ var (
 	htmlTagRE     = regexp.MustCompile(`(?s)<[^>]+>`)
 	attrBlockRE   = regexp.MustCompile(`\{[#.][^}]*\}`)
 )
+
+// chartRE is an inline SVG, and stripCharts takes out the large ones.
+//
+// This is the fourth element of the same shape as style, script and pre, and it
+// is the one with a reason outside this package. chunk.verbatim copies an
+// inline SVG of 2000 bytes or more through untranslated, because the twelve
+// survey posts inline 600 KB of chart between them and the axis labels are laid
+// out for the English string. The labels inside those charts are therefore
+// English on purpose, and a rule that measures them is measuring the tool
+// against a job the tool has decided not to do.
+//
+// blog/survey2017/background.html is the case. One paragraph of prose and six
+// charts, the paragraph translated correctly, and L11 refused the file for
+// carrying 3 Vietnamese letters in 5674 characters, of which about 5500 were
+// chart labels. No piece of the file owned that finding, so nothing was
+// requeued and the next pass refused it again.
+//
+// The 2000 byte floor is chunk.verbatimMin and it is here for the same reason
+// it is there. The small inline SVG in index.md and learn/index.md is an icon
+// with a <title> a screen reader says out loud, that title is asked about like
+// any other text, and a rule that stopped looking at it would stop checking
+// work this tool actually does.
+var chartRE = regexp.MustCompile(`(?is)<svg\b[^>]*>.*?</svg\s*>`)
+
+// chartMin is chunk.verbatimMin. It is not imported, because quality does not
+// depend on chunk and the two have different jobs: one decides what to ask
+// about and the other decides what to measure. They agree on this number and a
+// test in the chunk package says so.
+const chartMin = 2000
+
+func stripCharts(text string) string {
+	return chartRE.ReplaceAllStringFunc(text, func(m string) string {
+		if len(m) < chartMin {
+			return m
+		}
+		return " "
+	})
+}
 
 func stripFrontMatter(text string) string {
 	if m := frontRE.FindString(text); m != "" {

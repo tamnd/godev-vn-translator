@@ -186,6 +186,64 @@ func TestAPageGoesOutComesBackAndIsWritten(t *testing.T) {
 	}
 }
 
+// A page that is nothing but inline SVG has no piece to ask about, and putting
+// it back together produces the English byte for byte. Six real pages are this
+// shape. Writing one is writing an untranslated file, and the audit is right to
+// refuse it, so the file is left alone and the overlay falls back to English.
+//
+// Before this, the supervisor picked the six up every pass, assembled them,
+// took an L11 refusal that no piece could be blamed for, requeued nothing and
+// did it again five minutes later.
+func TestAPageThatIsAllChartsIsNotWritten(t *testing.T) {
+	chart := "<p>\n<svg width=\"70.00em\" height=\"9.20em\" version=\"1.1\">\n" +
+		strings.Repeat("<text x=\"0.00em\" y=\"1.20em\"><tspan>Weekly</tspan></text>\n", 40) +
+		"</svg>\n"
+	h := setup(t, map[string]string{"blog/survey/project.html": chart}, good)
+	result, assembly := h.cycle()
+
+	if h.fake.count() != 0 {
+		t.Errorf("asked %d questions about a page made of charts, want 0", h.fake.count())
+	}
+	if result.Done != 0 {
+		t.Errorf("finished %d pieces, want 0: %+v", result.Done, result)
+	}
+	if len(assembly.Written) != 0 || len(assembly.Refused) != 0 {
+		t.Errorf("wrote %d and refused %d, want 0 and 0: %+v", len(assembly.Written), len(assembly.Refused), assembly)
+	}
+	if len(assembly.Copied) != 1 || assembly.Copied[0] != "blog/survey/project.html" {
+		t.Errorf("Copied is %v, want the one page", assembly.Copied)
+	}
+	path := filepath.Join(h.root, content.VietnameseDir, "blog", "survey", "project.html")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("a copy of the English was written to %s", path)
+	}
+}
+
+// The same page with one paragraph of prose in it is an ordinary page. The
+// charts are still copied and the paragraph is still asked, so the skip is
+// about a file with nothing to ask and not about a file containing an <svg>.
+func TestAPageWithChartsAndProseIsWritten(t *testing.T) {
+	chart := "<svg width=\"70.00em\" version=\"1.1\">\n" +
+		strings.Repeat("<text x=\"0.00em\"><tspan>Weekly</tspan></text>\n", 40) +
+		"</svg>\n"
+	h := setup(t, map[string]string{"blog/survey/dev.html": chart + "\n<p>Run it and see.\n"}, good)
+	_, assembly := h.cycle()
+
+	if len(assembly.Copied) != 0 {
+		t.Errorf("Copied is %v, want nothing", assembly.Copied)
+	}
+	if len(assembly.Written) != 1 {
+		t.Fatalf("wrote %d files, want 1: %+v", len(assembly.Written), assembly)
+	}
+	got := h.read("blog/survey/dev.html")
+	if !strings.Contains(got, "Chạy thử và xem.") {
+		t.Errorf("the prose was not translated:\n%s", got)
+	}
+	if !strings.Contains(got, "<tspan>Weekly</tspan>") {
+		t.Errorf("the chart did not come through unchanged:\n%s", got)
+	}
+}
+
 func TestTheManifestSaysWhatItWasMadeFrom(t *testing.T) {
 	h := setup(t, map[string]string{"blog/unique.md": page}, good)
 	h.cycle()

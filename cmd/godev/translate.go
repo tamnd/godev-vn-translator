@@ -254,6 +254,10 @@ func report(assembly translate.Assembly, err error) error {
 		}
 		fmt.Fprintf(os.Stderr, "%d files are waiting on %d pieces\n", len(assembly.Waiting), waiting)
 	}
+	if len(assembly.Copied) > 0 {
+		fmt.Fprintf(os.Stderr, "%d files are copied through whole and have nothing to translate: %s\n",
+			len(assembly.Copied), strings.Join(assembly.Copied, ", "))
+	}
 	if len(assembly.Refused) == 0 {
 		return nil
 	}

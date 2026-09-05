@@ -49,6 +49,9 @@ type Assembly struct {
 	// Waiting is files that are not whole yet, with how many pieces are still
 	// out. This is the ordinary state of a run in progress and not a problem.
 	Waiting map[string]int
+	// Copied is files where every piece is copied through, so there is nothing
+	// to ask and nothing to write. See the loop in Assemble.
+	Copied []string
 }
 
 // Assemble puts back together every file whose pieces are all in, audits each
@@ -74,6 +77,10 @@ func (e *Engine) Assemble(pairs []content.Pair) (Assembly, error) {
 			return out, err
 		}
 		if len(cut) == 0 {
+			continue
+		}
+		if allCopied(cut) {
+			out.Copied = append(out.Copied, pair.Rel)
 			continue
 		}
 		text, spans, missing, made, err := e.gather(pair.Rel, cut)
@@ -141,6 +148,36 @@ func (e *Engine) Assemble(pairs []content.Pair) (Assembly, error) {
 		}
 	}
 	return out, nil
+}
+
+// allCopied reports whether a file is made entirely of pieces that are copied
+// through rather than asked.
+//
+// Six pages in the corpus are: blog/survey2016 community, effective and
+// project, and blog/survey2017 dev, effective and project. Each one is a
+// sequence of inline SVG charts with an <p> around them and nothing else, and
+// chunk.verbatim copies inline SVG for the reasons written up there.
+//
+// Assembling one produces the English file byte for byte, which is what it
+// should produce, and L11 then refuses it for carrying no Vietnamese. That
+// refusal is correct about the bytes and useless: there is no piece to blame,
+// so nothing is requeued, and the next pass does the same thing again. The
+// supervisor ran it every five minutes for a day and the six pages were refused
+// every time.
+//
+// The right answer is that these pages have nothing to translate. Not writing
+// one leaves the overlay falling back to the English file, which is the correct
+// rendering of a page that is entirely charts, and it is the same thing an
+// empty _content_vi would do. L01 still reports the missing counterpart as a
+// notice, which is right: somebody who redraws the charts in Vietnamese should
+// find them in that list.
+func allCopied(cut []chunk.Chunk) bool {
+	for _, c := range cut {
+		if !c.Verbatim {
+			return false
+		}
+	}
+	return true
 }
 
 // span is where one piece of the file ended up, in body lines.
