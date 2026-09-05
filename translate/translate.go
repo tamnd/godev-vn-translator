@@ -24,7 +24,7 @@
 //
 // Assemble puts the pieces of a finished file back together, audits the whole
 // thing, and writes it only if nothing refuses. The per piece gates are the
-// fast loop and this is the backstop, because eight of the seventeen rules are
+// fast loop and this is the backstop, because eight of the eighteen rules are
 // about a sequence that runs across a cut and there is no honest way to check
 // those until the file exists.
 //

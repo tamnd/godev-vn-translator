@@ -1182,6 +1182,71 @@ var banners = []string{
 	"Hmm...something seems to have gone wrong",
 }
 
+// L18. A copyright or license notice came back in Vietnamese.
+//
+// A legal notice is reproduced and not translated. The Go license header is a
+// fixed string that appears at the top of every file in the Go tree, and a
+// translation of it is not the same notice, it is a different text with no
+// standing that happens to describe the same terms.
+//
+// Three files on the corpus had one. doc/contribute.html is the one that shows
+// what this costs. The page says new files should use the standard copyright
+// header, and then showed it like this:
+//
+//	// Copyright {{now.UTC.Year}} The Go Authors. All rights reserved.
+//	// Việc sử dụng mã nguồn này được điều chỉnh bởi giấy phép kiểu BSD
+//	// có thể được tìm thấy trong tệp LICENSE.
+//
+// A contributor following that instruction puts a non-standard license header
+// at the top of a Go file, and the mistake leaves this site and lands in a CL.
+// L06 masks comments inside code blocks on purpose, because a comment in an
+// example is prose a reader reads, so nothing here was going to catch it.
+//
+// The other two were codewalkdir.tmpl, whose header is an HTML comment, and
+// blog/go-brand/Go-Logo/copyright.txt, which is the notice inside the logo
+// archive. Three files, three different shapes, one rule.
+//
+// The two phrases are the ones that only ever occur in the notice. "BSD-style"
+// on its own is not one of them: project.html and both install pages say "a
+// BSD-style license" in a sentence and translate it correctly, which is right,
+// because a sentence about the license is prose. "The Go Authors" is not one
+// either, since blog/2years.md has "The Go Authors went on to produce lots of
+// libraries". The full phrases occur nine times each across the corpus and
+// every one of them is the notice.
+//
+// Refuse and not notice. There is no judgement in reproducing a legal notice,
+// and the file that had it wrong was instructing people to copy it.
+var ruleNotice = Rule{
+	ID: "L18", Name: "notice", Severity: Refuse,
+	Check: func(in Input) []Finding {
+		var out []Finding
+		for _, phrase := range noticePhrases {
+			en := strings.Count(in.EN, phrase)
+			if en == 0 {
+				continue
+			}
+			vi := strings.Count(in.VI, phrase)
+			if vi >= en {
+				continue
+			}
+			out = append(out, Finding{
+				Line: escapeLine(in.EN, phrase),
+				Msg: fmt.Sprintf(
+					"says %q %d times and the English says it %d, and a legal notice is reproduced not translated",
+					phrase, vi, en),
+			})
+		}
+		return out
+	},
+}
+
+// noticePhrases are the parts of the Go license header that never occur in a
+// sentence about the license. See ruleNotice for what was tried and rejected.
+var noticePhrases = []string{
+	"The Go Authors. All rights reserved",
+	"Use of this source code is governed by",
+}
+
 // TransportError returns the banner a piece of text is really made of, or "".
 //
 // It is exported because the engine needs the same answer before it stores
