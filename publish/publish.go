@@ -15,6 +15,7 @@ package publish
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -133,6 +134,15 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	for _, seed := range seeds {
 		c.enqueue(seed)
 	}
+	// The tour is an Angular application. It asks for its lessons and its
+	// templates from JavaScript, so no href in any page points at them and a
+	// crawl that only follows links cannot reach them. Without those files the
+	// tour loads its shell and then sits empty. This runs before the walk rather
+	// than after it because it also queues the tour's own URLs, which are in the
+	// lessons it just fetched and nowhere else.
+	if err := c.tour(ctx); err != nil {
+		return c.result(), err
+	}
 	for len(c.queue) > 0 {
 		p := c.queue[0]
 		c.queue = c.queue[1:]
@@ -141,11 +151,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		}
 	}
 
-	// The tour is an Angular application. It asks for its lessons and its
-	// templates from JavaScript, so no href in any page points at them and the
-	// crawl above cannot reach them. Without these three files the tour loads
-	// its shell and then sits empty.
-	if err := c.tour(ctx); err != nil {
+	if err := c.notFound(ctx); err != nil {
 		return c.result(), err
 	}
 	if err := c.writePlaceholder(); err != nil {
@@ -313,6 +319,9 @@ func (c *crawl) tour(ctx context.Context) error {
 		if err := c.write("tour/lessons.json", a.body); err != nil {
 			return err
 		}
+		if err := c.tourRoutes(a.body); err != nil {
+			return err
+		}
 	}
 	for _, partial := range []string{"editor.html", "list.html"} {
 		p := "/tour/static/partials/" + partial
@@ -338,6 +347,93 @@ func (c *crawl) tour(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// tourRoutes queues every URL the tour has, read out of its lesson document.
+//
+// The tour routes in the browser. static/js/app.js registers /tour/:lessonId
+// and /tour/:lessonId/:pageNumber, so /tour/methods/26 is a real address that a
+// reader can be sent, bookmark and reload, and the server answers all of them
+// with the same shell. Nothing links to them: the table of contents is built by
+// the application from the lessons it fetched, so the crawl reached exactly the
+// two that happened to be linked from a page and missed the other hundred and
+// eight.
+//
+// They are written as files rather than covered by one rewrite rule in
+// _redirects. A rewrite would be fewer bytes and it would work on Cloudflare,
+// and it would not work at all on GitHub Pages, which has no redirect table.
+// It would also have to be written to not shadow /tour/static and
+// /tour/lesson, because Pages follows a redirect whether or not an asset
+// matches the request. A hundred and ten copies of a 28 KB shell is three
+// megabytes on a hundred megabyte export, and it behaves the same everywhere.
+//
+// The server answers 200 for any path under /tour/, including /tour/nosuch, so
+// the list has to come from the lessons rather than from asking.
+func (c *crawl) tourRoutes(lessons []byte) error {
+	var set map[string]struct {
+		Pages []json.RawMessage
+	}
+	if err := json.Unmarshal(lessons, &set); err != nil {
+		return fmt.Errorf("publish: reading the tour lessons: %w", err)
+	}
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	n := 0
+	for _, id := range ids {
+		c.enqueue("/tour/" + id)
+		n++
+		for i := range set[id].Pages {
+			c.enqueue(fmt.Sprintf("/tour/%s/%d", id, i+1))
+			n++
+		}
+	}
+	c.opts.Log("the tour has %d lessons and %d addresses", len(ids), n)
+	return nil
+}
+
+// notFoundPage is the path the site serves the not found page from, and
+// notFoundFile is the name both hosts look for at the top of the export.
+const (
+	notFoundPage = "/404"
+	notFoundFile = "404.html"
+)
+
+// notFound writes the page a static host answers with for a path the export
+// does not have.
+//
+// Without this file Cloudflare Pages does not serve a 404 at all. Its rule is
+// that if a project has no top level 404.html then it is a single page
+// application, so every unmatched path is answered with the root document and a
+// 200. On a site of 437 pages that is not a single page application, the effect
+// is that every typo and every dead inbound link quietly serves the front page
+// and tells a crawler it found what it asked for. GitHub Pages reads the same
+// filename, so one file covers both.
+//
+// The page comes from _content_vi/404.md rather than being built here. The
+// error page golangorg renders for a missing file cannot be used: it puts the
+// path that was asked for in the title, the canonical link and the body, so
+// exporting it would ship a page whose text names whichever path the export
+// happened to probe with. A page in the content tree is Vietnamese, has the
+// site chrome and the navigation, and can be edited without touching this
+// program.
+//
+// This is a hard error rather than a skip. A missing 404 page is invisible
+// until the deploy, and what it looks like then is the whole site answering 200
+// for paths that are not there.
+func (c *crawl) notFound(ctx context.Context) error {
+	a, err := get(ctx, c.site, notFoundPage)
+	if err != nil {
+		return err
+	}
+	if a.status < 200 || a.status >= 300 {
+		return fmt.Errorf("publish: the site answered %d for %s, so there is no page to write to %s. Add _content_vi/404.md", a.status, notFoundPage, notFoundFile)
+	}
+	c.seen[notFoundPage] = true
+	c.pages++
+	return c.write(notFoundFile, []byte(Rewrite(string(a.body), c.opts.Host)))
 }
 
 func (c *crawl) write(rel string, body []byte) error {
@@ -546,7 +642,57 @@ func (c *crawl) writeRedirects() error {
 			fmt.Fprintf(&b, "%s %s %d\n", r.from, r.to, r.status)
 		}
 	}
-	return c.write("_redirects", []byte(b.String()))
+	table := b.String()
+	if err := checkRules(table); err != nil {
+		return err
+	}
+	return c.write("_redirects", []byte(table))
+}
+
+// Cloudflare Pages caps the redirect table. From its documentation: "A
+// _redirects file is limited to 2,000 static redirects and 100 dynamic
+// redirects, for a combined total of 2,100 redirects", and "Each redirect
+// declaration has a 1,000-character limit."
+//
+// A rule is dynamic when its source has a splat or a placeholder in it.
+const (
+	maxStatic  = 2000
+	maxDynamic = 100
+	maxRule    = 1000
+)
+
+// checkRules refuses a table Pages would not take whole.
+//
+// The documentation gives the caps and does not say what happens past them,
+// which is the reason to check here rather than find out. The two ways to go
+// over are both plausible from the site: one more proxy prefix is two more
+// dynamic rules against a budget of a hundred, and a run of renames in the
+// content is one more static rule each against two thousand. Neither would be
+// noticed by anybody reading the diff of a generated file.
+func checkRules(table string) error {
+	var static, dynamic int
+	for _, line := range strings.Split(table, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if len(line) > maxRule {
+			return fmt.Errorf("publish: Pages takes %d characters a redirect and this one is %d, starting %.80s", maxRule, len(line), line)
+		}
+		from, _, _ := strings.Cut(line, " ")
+		if strings.Contains(from, "*") || strings.Contains(from, "/:") {
+			dynamic++
+		} else {
+			static++
+		}
+	}
+	if static > maxStatic {
+		return fmt.Errorf("publish: %d static redirects and Pages takes %d", static, maxStatic)
+	}
+	if dynamic > maxDynamic {
+		return fmt.Errorf("publish: %d dynamic redirects and Pages takes %d", dynamic, maxDynamic)
+	}
+	return nil
 }
 
 // placeholderFile is where the page for a bought and unmoved domain lands.
