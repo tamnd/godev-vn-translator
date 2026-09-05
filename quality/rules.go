@@ -754,9 +754,22 @@ func within(s [2]int, spans [][2]int) bool {
 // the general sense is a real English word and `giao diện` is the right
 // Vietnamese for it: effective_go.html calls a slice a convenient interface to
 // a sequence of data, and blog/pkgsite-api.md describes a command line
-// interface. Both are correct and both are reported here. A person reads the
-// occurrence and decides which sense it is, which is the one thing a gate
-// cannot do.
+// interface. A person reads the occurrence and decides which sense it is, which
+// is the one thing a gate cannot do.
+//
+// That paragraph used to end by saying both are reported here and a person
+// sorts them out. Somebody did, and the count was not close. Of the 24 findings
+// this rule raised for `interface`, every one was the ordinary English noun: a
+// file system interface, a user interface, an operating system interface, an
+// interface description language, a command line interface. Of the 7 for `map`,
+// every one was the verb or a colour map. Thirty one findings, none of them
+// right, out of sixty five. A notice nobody can act on is not a judgement call
+// left to a person, it is noise burying the thirty four that are real.
+//
+// So the glossary now says which rows are sense dependent, in a second table,
+// and this rule skips them. It is the same conclusion the `repository` row
+// reached from the other direction: the fix for a rule that cannot tell two
+// things apart is to stop asking it to.
 var ruleKeptTerms = Rule{
 	ID: "L16", Name: "kept terms", Severity: Notice,
 	Check: func(in Input) []Finding {
@@ -766,7 +779,7 @@ var ruleKeptTerms = Rule{
 		source := Prose(in.EN)
 		var out []Finding
 		for _, t := range in.Glossary.Mentioned(source) {
-			if !t.KeepsEnglish() {
+			if !t.KeepsEnglish() || t.Contextual {
 				continue
 			}
 			fold := !shouty(t.EN)
