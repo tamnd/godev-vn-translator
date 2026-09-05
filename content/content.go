@@ -16,6 +16,7 @@ package content
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -100,6 +101,21 @@ func (k Kind) Translatable() bool {
 // _content/tour/static is the Angular app that drives the tour. Its Vietnamese
 // is in the templates and the lesson articles, and its JavaScript is code.
 // cmd fixtures are read back by tests that compare bytes.
+//
+// doc/devel/weekly.html is here for a different reason and it is worth writing
+// down. It is 300988 bytes, which is 82 requests, three times the next biggest
+// page in the corpus. 99 percent of those bytes are inside its 89 <pre> blocks,
+// and what is in them is the weekly commit log of 2009 to 2012: package paths,
+// identifiers, contributor names and terse commit subjects. Outside the <pre>
+// blocks there are 89 <h2> date headings and exactly two paragraphs, 325 bytes
+// of prose in all. The page says of itself that the snapshots are no longer
+// created and that it remains as a historical reference only.
+//
+// Asking for it does not work either. The model reads nine kilobytes of bullet
+// lines and answers with one or two blocks out of six, so L03 refuses it for
+// truncation, three times, and the piece dies with the English kept. That is
+// the same outcome as skipping it and it costs the fleet a day to reach. At one
+// point 126 of the 500 jobs in the queue were this one file.
 var Skip = []string{
 	"tour/static/js",
 	"tour/static/lib",
@@ -107,7 +123,19 @@ var Skip = []string{
 	"css/",
 	"images/",
 	"favicon.ico",
+	"doc/devel/weekly.html",
 }
+
+// ErrSkipped says the path names a file the corpus does not translate.
+//
+// It is a sentinel because Find is called with a path that came from somewhere
+// else, a queue job written before the skip list grew, and the caller needs to
+// tell "this is not ours" apart from "this is missing". The first is a job to
+// drop and the second is a real error.
+var ErrSkipped = errors.New("not translated")
+
+// Skipped reports whether Walk would pass this path over.
+func Skipped(rel string) bool { return skipped(rel) }
 
 func skipped(rel string) bool {
 	rel = filepath.ToSlash(rel)
@@ -185,9 +213,18 @@ func (r Root) Pairs() ([]Pair, error) {
 }
 
 // Find returns the pair for one path under _content.
+//
+// A path on the skip list is an error and not a pair, because Walk does not
+// return one either and the two have to agree. They did not agree until
+// doc/devel/weekly.html went on the list: Walk stopped offering it and Find
+// went on handing it out, so the 126 jobs already in the queue for it carried
+// on being asked as if nothing had changed.
 func (r Root) Find(rel string) (Pair, error) {
 	rel = filepath.ToSlash(path.Clean(rel))
 	rel = strings.TrimPrefix(rel, EnglishDir+"/")
+	if skipped(rel) {
+		return Pair{}, fmt.Errorf("%s is %w", rel, ErrSkipped)
+	}
 	en := filepath.Join(string(r), EnglishDir, filepath.FromSlash(rel))
 	if _, err := os.Stat(en); err != nil {
 		return Pair{}, fmt.Errorf("no English file at %s", rel)
