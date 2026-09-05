@@ -877,3 +877,41 @@ func TestAJobForAPieceThatIsNowCopiedIsDropped(t *testing.T) {
 		t.Errorf("the job was not finished: %+v", stats.Counts)
 	}
 }
+
+// A page can leave the corpus while its jobs are still in the queue, which is
+// what happened the day doc/devel/weekly.html was skipped: 126 jobs were
+// already planned against it. They have to be dropped rather than failed, or
+// each one costs three leases and three lines in the log for a piece no route
+// would ever have seen.
+func TestAJobForAPageThatIsNoLongerTranslatedIsDropped(t *testing.T) {
+	h := setup(t, map[string]string{"doc/old.html": "<p>Hello.</p>\n"}, good)
+	if _, err := h.engine.Plan(h.pairs(), false); err != nil {
+		t.Fatal(err)
+	}
+
+	was := content.Skip
+	content.Skip = append(append([]string{}, was...), "doc/old.html")
+	t.Cleanup(func() { content.Skip = was })
+	h.engine.split = nil
+
+	result, err := h.engine.Run(context.Background(), "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.fake.count() != 0 {
+		t.Errorf("asked %d questions about a page that is not translated", h.fake.count())
+	}
+	if result.Failed != 0 {
+		t.Errorf("failed %d jobs, want 0: %+v", result.Failed, result)
+	}
+	stats, err := h.engine.Queue.Stats(queue.StageTranslate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := stats.Counts[queue.Pending] + stats.Counts[queue.Leased]; n != 0 {
+		t.Errorf("%d jobs are still in the queue: %+v", n, stats.Counts)
+	}
+	if stats.Counts[queue.Done] != 1 {
+		t.Errorf("the job was not finished: %+v", stats.Counts)
+	}
+}

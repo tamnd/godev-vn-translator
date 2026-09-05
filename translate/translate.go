@@ -385,6 +385,19 @@ func (e *Engine) do(ctx context.Context, job queue.Job, value route.Route, clien
 		return out, ferr
 	}
 	c, err := e.chunkAt(rel, index)
+	if errors.Is(err, content.ErrSkipped) {
+		// The page left the corpus while its jobs were still in the queue. This
+		// is the verbatim case below wearing different clothes: no route is
+		// involved, no attempt is owed, and there is nothing left to ask. So it
+		// is finished rather than failed, for the same reason.
+		//
+		// Failing would cost three leases each and put 378 route errors in the
+		// log the day doc/devel/weekly.html was skipped, for 126 jobs no route
+		// would ever have seen.
+		e.logf("%s  is not translated any more, dropping the job", rel)
+		_, ferr := e.Queue.Finish(job, true, "the page is not translated")
+		return out, ferr
+	}
 	if err != nil {
 		// The English moved under a job that was planned against the old cut.
 		// That is not the route's fault and not worth retrying: the next plan
