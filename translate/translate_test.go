@@ -838,3 +838,42 @@ func TestAStaleRecordDoesNotBlockTheFileThatReplacesIt(t *testing.T) {
 		t.Error("the record still names the English the translation was not made from")
 	}
 }
+
+// A job in the queue names a piece by index, and the cut can change under it.
+// When the piece it names has become one that is copied through, there is
+// nothing to ask, and the job is finished rather than failed: no route saw it,
+// so three attempts and a route error in the log would be a lie.
+func TestAJobForAPieceThatIsNowCopiedIsDropped(t *testing.T) {
+	h := setup(t, map[string]string{"blog/x.md": "---\ntitle: Something\n---\n"}, good)
+	if _, err := h.engine.Plan(h.pairs(), false); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(h.root, content.EnglishDir, "blog", "x.md")
+	if err := os.WriteFile(path, []byte("---\nredirect: /blog/y\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The cut is cached for the life of an engine, and the queue outlives the
+	// process, so the run that meets the changed file is always a later one.
+	h.engine.split = nil
+
+	result, err := h.engine.Run(context.Background(), "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.fake.count() != 0 {
+		t.Errorf("asked %d questions about a piece that is copied through", h.fake.count())
+	}
+	if result.Failed != 0 {
+		t.Errorf("failed %d jobs, want 0: %+v", result.Failed, result)
+	}
+	stats, err := h.engine.Queue.Stats(queue.StageTranslate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := stats.Counts[queue.Pending] + stats.Counts[queue.Leased]; n != 0 {
+		t.Errorf("%d jobs are still in the queue: %+v", n, stats.Counts)
+	}
+	if stats.Counts[queue.Done] != 1 {
+		t.Errorf("the job was not finished: %+v", stats.Counts)
+	}
+}

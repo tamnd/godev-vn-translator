@@ -286,3 +286,32 @@ func TestAnEmptyFileIsStillOnePiece(t *testing.T) {
 		t.Fatalf("got %d pieces for an empty file", len(chunks))
 	}
 }
+
+// about.md is the whole of the file, and the run asked about it every time,
+// got the key back in Vietnamese and had L09 refuse it.
+func TestFrontMatterWithNothingToTranslateIsCopied(t *testing.T) {
+	chunks := Split("about.md", content.KindMarkdown, "---\nredirect: https://pkg.go.dev/about\n---\n", 0)
+	if len(chunks) != 1 {
+		t.Fatalf("got %d pieces, want 1: %+v", len(chunks), chunks)
+	}
+	if !chunks[0].Verbatim {
+		t.Error("a front matter block of nothing but a redirect is being asked about")
+	}
+}
+
+func TestFrontMatterWithATitleIsAsked(t *testing.T) {
+	for _, front := range []string{
+		"---\ntitle: The unique package\ndate: 2024-01-01\n---\n",
+		// A key nobody has classified counts as translatable. Guessing from the
+		// value is how `title: https://example.com` stops being a title.
+		"---\nsummary: what it does\n---\n",
+	} {
+		chunks := Split("blog/x.md", content.KindMarkdown, front+"\nbody\n", 0)
+		if chunks[0].Part != PartFrontMatter {
+			t.Fatalf("the first piece is not front matter: %+v", chunks[0])
+		}
+		if chunks[0].Verbatim {
+			t.Errorf("front matter with something to translate was copied: %q", front)
+		}
+	}
+}
