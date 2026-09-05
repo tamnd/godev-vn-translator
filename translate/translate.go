@@ -694,14 +694,96 @@ func unmangle(text, english string) string {
 		}
 		return g[1] + `="` + g[3] + `"`
 	})
-	return entityRE.ReplaceAllStringFunc(text, func(m string) string {
+	text = entityRE.ReplaceAllStringFunc(text, func(m string) string {
 		r, ok := entityRune(m)
 		if !ok || strings.Contains(english, m) || !strings.ContainsRune(english, r) {
 			return m
 		}
 		return string(r)
 	})
+	return reindent(text, english)
 }
+
+// reindent puts back the leading whitespace of a code line that came back with
+// different leading whitespace and nothing else changed.
+//
+// It runs last because the entity repair above turns `&#x9;` back into a tab,
+// and a line whose tab is still an entity is not the same line yet.
+//
+// This is the fourth kind of transport damage and it was the commonest. Of the
+// 25 L06 refusals in one run log, 12 were a single space in front of a bare
+// `//` and 2 were a leading tab that came back as a space or not at all. That
+// is 14 of 25, and every one of them cost three attempts and then killed the
+// piece, so the page kept the English for it. The other 11 are real: a bare URL
+// the model turned into a Markdown link, and one signature it corrupted. Those
+// stay refused, which is the point of only repairing what can be proved.
+//
+// The proof is the line either side of the leading whitespace. A line is only
+// touched when the answer and the English are byte identical once the leading
+// spaces and tabs come off, so the repair puts back an indent and can change
+// nothing else. Inside a fenced block there is no such thing as a legitimate
+// re indentation: L06 requires the code outside its comments to match the
+// English byte for byte, so a line that differs only in its indent is damage by
+// definition.
+//
+// A translated comment line whose indent also moved is not repaired, because
+// its text is meant to differ and there is nothing left to compare the indent
+// against. L06 catches that one, which is the right outcome for a case this
+// cannot prove.
+func reindent(text, english string) string {
+	lines, en := strings.Split(text, "\n"), strings.Split(english, "\n")
+	blocks, want := fenced(lines), fenced(en)
+	if len(blocks) == 0 || len(blocks) != len(want) {
+		return text
+	}
+	changed := false
+	for i := range blocks {
+		a, b := blocks[i], want[i]
+		if a[1]-a[0] != b[1]-b[0] {
+			// A block that gained or lost a line is L03 or L06 territory and
+			// there is no line to line correspondence left to repair against.
+			continue
+		}
+		for j := 0; j < a[1]-a[0]; j++ {
+			line, was := lines[a[0]+j], en[b[0]+j]
+			if line == was {
+				continue
+			}
+			body := strings.TrimLeft(line, " \t")
+			if body != strings.TrimLeft(was, " \t") {
+				continue
+			}
+			lines[a[0]+j] = was[:len(was)-len(strings.TrimLeft(was, " \t"))] + body
+			changed = true
+		}
+	}
+	if !changed {
+		return text
+	}
+	return strings.Join(lines, "\n")
+}
+
+// fenced returns the half open line range of each fenced block's body, in order.
+func fenced(lines []string) [][2]int {
+	var out [][2]int
+	open, marker := -1, ""
+	for i, line := range lines {
+		if open < 0 {
+			if m := fenceOpenRE.FindStringSubmatch(line); m != nil {
+				open, marker = i+1, m[1]
+			}
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, marker) && strings.Trim(trimmed, marker[:1]) == "" {
+			out = append(out, [2]int{open, i})
+			open, marker = -1, ""
+		}
+	}
+	return out
+}
+
+var fenceOpenRE = regexp.MustCompile("^\\s*(```+|~~~+)")
 
 // entityRune decodes a numeric character reference.
 func entityRune(entity string) (rune, bool) {

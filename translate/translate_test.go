@@ -915,3 +915,90 @@ func TestAJobForAPageThatIsNoLongerTranslatedIsDropped(t *testing.T) {
 		t.Errorf("the job was not finished: %+v", stats.Counts)
 	}
 }
+
+// The commonest transport damage in the run log was one space in front of a
+// bare `//`, twelve times, and a leading tab that came back as a space or not
+// at all, twice. Fourteen of the twenty five L06 refusals, and every one of
+// them cost three attempts and then killed the piece.
+func TestReindentPutsBackTheIndentOfACodeLine(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		english string
+		in      string
+		want    string
+	}{
+		{
+			// doc/tutorial/generics.md#0005, twelve times over.
+			"a space in front of a bare comment marker",
+			"```go\n//\nfunc main() {\n}\n```\n",
+			"```go\n //\nfunc main() {\n}\n```\n",
+			"```go\n//\nfunc main() {\n}\n```\n",
+		},
+		{
+			// blog/inliner.md#0004.
+			"a tab that came back as a space",
+			"```go\nfunc f() {\n\treturn newmath.Sub(x, y)\n}\n```\n",
+			"```go\nfunc f() {\n return newmath.Sub(x, y)\n}\n```\n",
+			"```go\nfunc f() {\n\treturn newmath.Sub(x, y)\n}\n```\n",
+		},
+		{
+			"a leading tab that came back as nothing",
+			"```go\nfunc f() {\n\tvar c inspector.Cursor\n}\n```\n",
+			"```go\nfunc f() {\nvar c inspector.Cursor\n}\n```\n",
+			"```go\nfunc f() {\n\tvar c inspector.Cursor\n}\n```\n",
+		},
+		{
+			// The guard is the rest of the line. This one is the model
+			// corrupting a signature, which L06 is right to refuse, and no
+			// amount of whitespace makes the two lines the same.
+			"a line whose code changed is left for the gate",
+			"```go\nfunc Neg(x int) int {\n}\n```\n",
+			"```go\nfunc Neg(x, int) int {\n}\n```\n",
+			"```go\nfunc Neg(x, int) int {\n}\n```\n",
+		},
+		{
+			// A translated comment is meant to differ, so there is nothing to
+			// compare its indent against and it is not touched.
+			"a translated comment keeps whatever indent it came back with",
+			"```go\n\t// add two numbers\n```\n",
+			"```go\n// cong hai so\n```\n",
+			"```go\n// cong hai so\n```\n",
+		},
+		{
+			// Prose outside a fence is prose. Indentation there is the author's
+			// and the translation's, and this has no business in it.
+			"prose outside a fence is left alone",
+			"Some prose.\n\n  Indented prose.\n",
+			"Van xuoi.\n\nIndented prose.\n",
+			"Van xuoi.\n\nIndented prose.\n",
+		},
+		{
+			"a block that lost a line has no correspondence to repair against",
+			"```go\na()\n\tb()\nc()\n```\n",
+			"```go\na()\nb()\n```\n",
+			"```go\na()\nb()\n```\n",
+		},
+		{
+			"an answer with a different number of blocks is left alone",
+			"```go\n\ta()\n```\n\n```go\n\tb()\n```\n",
+			"```go\na()\n```\n",
+			"```go\na()\n```\n",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := reindent(tt.in, tt.english); got != tt.want {
+				t.Errorf("reindent\n got %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// The entity repair has to run before this one or a tab that is still `&#x9;`
+// is not the same line yet and the indent is never put back.
+func TestUnmangleFixesAnEntityTabBeforeItLooksAtTheIndent(t *testing.T) {
+	english := "```go\nfunc f() {\n\treturn 1\n}\n```\n"
+	in := "```go\nfunc f() {\n&#x9;return 1\n}\n```\n"
+	if got := unmangle(in, english); got != english {
+		t.Errorf("unmangle\n got %q\nwant %q", got, english)
+	}
+}
