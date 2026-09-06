@@ -31,6 +31,7 @@ commands:
   doctor     probe every route and say which ones are answering
   queue      look at the work list on disk, reap it, retry it, drain it
   backfill   record what the translations made before this tool were made from
+  repair     apply the transport repairs to translations already on disk
 
 The checkout defaults to $GODEV_VN, then to ../godev-vn beside this repo.
 `
@@ -57,7 +58,7 @@ func main() {
 	cmd, rest := args[0], args[1:]
 	var runErr error
 	switch cmd {
-	case "translate", "audit", "chunk", "queue", "backfill", "publish":
+	case "translate", "audit", "chunk", "queue", "backfill", "publish", "repair":
 		// Only the commands that work against the site need the site. Asking
 		// for a checkout before printing a route table would be a strange thing
 		// to fail on. The queue needs it because a work list is state about one
@@ -76,6 +77,8 @@ func main() {
 			runErr = runChunk(dir, rest)
 		case "backfill":
 			runErr = runBackfill(dir, rest)
+		case "repair":
+			runErr = runRepair(dir, rest)
 		case "publish":
 			runErr = runPublish(ctx, dir, rest)
 		default:

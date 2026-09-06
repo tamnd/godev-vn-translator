@@ -977,3 +977,18 @@ func addedInTransit(r rune, english string) bool {
 	}
 	return !strings.Contains(english, `\`+string(r))
 }
+
+// Unmangle undoes the transport damage in text, with english as the proof.
+//
+// The unexported form runs on every answer before it reaches the gates. This
+// one is for `godev repair`, which runs the same repairs over translations
+// already on disk, because a repair added today does nothing for the pages that
+// came back before it existed and asking for those pages again costs fleet time
+// to arrive at an answer this can work out for free.
+//
+// The proof is the same either way and so is the code. The only difference is
+// that english here is a whole file rather than the piece a request was made
+// from, which makes every "the English never writes this" test harder to pass
+// rather than easier, so the repair does less on a file than it would have done
+// on the chunk. That is the safe direction.
+func Unmangle(text, english string) string { return unmangle(text, english) }
