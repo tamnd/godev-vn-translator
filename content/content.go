@@ -116,6 +116,17 @@ func (k Kind) Translatable() bool {
 // truncation, three times, and the piece dies with the English kept. That is
 // the same outcome as skipping it and it costs the fleet a day to reach. At one
 // point 126 of the 500 jobs in the queue were this one file.
+// talks/2013/highperf/mart is the deployment config of the demo app that goes
+// with a 2013 talk. The three files are `app.yaml` and they hold nothing but
+// App Engine keys, url patterns and `script: _go_app`. There is nothing in one
+// to translate, and the model was right about that: it sent each file back
+// unchanged and L11 refused all three for carrying no Vietnamese, three times
+// each, until the pieces died. A file with no prose in it should not be asked
+// about in the first place.
+//
+// The other `.yaml` under _content is site content and stays: `menus.yaml`,
+// `testimonials.yaml`, `resources.yaml` and the seven under `learn/` are lists
+// of titles and descriptions a reader sees.
 var Skip = []string{
 	"tour/static/js",
 	"tour/static/lib",
@@ -124,6 +135,7 @@ var Skip = []string{
 	"images/",
 	"favicon.ico",
 	"doc/devel/weekly.html",
+	"talks/2013/highperf/mart/",
 }
 
 // ErrSkipped says the path names a file the corpus does not translate.
