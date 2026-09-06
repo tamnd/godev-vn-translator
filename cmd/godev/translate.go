@@ -258,6 +258,10 @@ func report(assembly translate.Assembly, err error) error {
 		fmt.Fprintf(os.Stderr, "%d files are copied through whole and have nothing to translate: %s\n",
 			len(assembly.Copied), strings.Join(assembly.Copied, ", "))
 	}
+	if len(assembly.Kept) > 0 {
+		fmt.Fprintf(os.Stderr, "%d files gave up on a piece and kept the translation already on disk: %s\n",
+			len(assembly.Kept), strings.Join(assembly.Kept, ", "))
+	}
 	if len(assembly.Refused) == 0 {
 		return nil
 	}

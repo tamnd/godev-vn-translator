@@ -52,6 +52,10 @@ type Assembly struct {
 	// Copied is files where every piece is copied through, so there is nothing
 	// to ask and nothing to write. See the loop in Assemble.
 	Copied []string
+	// Kept is files that assembled with a piece in English and already had a
+	// translation on disk, so the one on disk was left where it was. See the
+	// loop in Assemble.
+	Kept []string
 }
 
 // Assemble puts back together every file whose pieces are all in, audits each
@@ -117,6 +121,45 @@ func (e *Engine) Assemble(pairs []content.Pair) (Assembly, error) {
 			e.logf("%s  %d refused on the whole file, %d pieces sent back",
 				pair.Rel, len(refusals), len(refused.Requeued))
 			continue
+		}
+
+		// A rebuild with a piece of English in it never replaces a translation
+		// that is already there.
+		//
+		// The package doc says why a piece that fails its last attempt is
+		// written in English: the overlay serves the whole page in English
+		// anyway, so refusing to give up on one piece of ref/mod.md costs the
+		// other fifty nine and buys a reader nothing. That argument is about a
+		// page with no Vietnamese yet, and it stops holding the moment there is
+		// one, because then the thing being compared against is not the English
+		// page, it is the translation on disk.
+		//
+		// doc/install.html is the page that showed it. Piece 3 of it is 8743
+		// bytes of tab panels, buttons and copy paste widgets with a dozen
+		// sentences threaded through them, and it has been refused ten times
+		// across three days on two hosts, always L07 and always the same
+		// dropped image. The piece then gave up and kept the English, which is
+		// 91 percent of the file, and the next assembly would have written that
+		// over a translation that is complete, that passes the whole audit, and
+		// that somebody already repaired by hand once in #18. No gate would
+		// have said a word: L02 is a notice and L11 wants one tone marked
+		// letter per two hundred characters, which the front matter alone
+		// clears.
+		//
+		// The manifest is not updated either, so the page stays L13 stale and
+		// the audit goes on saying it is out of date, which is the truth. A
+		// refresh that could not be made is better reported than performed.
+		if made.English > 0 {
+			had, err := pair.Vietnamese()
+			if err != nil {
+				return out, err
+			}
+			if had != "" && had != english {
+				out.Kept = append(out.Kept, pair.Rel)
+				e.logf("%s  %d pieces gave up, keeping the translation already on disk",
+					pair.Rel, made.English)
+				continue
+			}
 		}
 
 		if err := write(pair.VietnamesePath, text); err != nil {
