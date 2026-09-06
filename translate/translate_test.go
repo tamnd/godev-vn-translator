@@ -1410,3 +1410,63 @@ func TestRefrontPutsTheBracketBack(t *testing.T) {
 		})
 	}
 }
+
+// The same repair outside a fence. Three files came back from one run with
+// every leading tab replaced by a single space and nothing else touched, and no
+// gate said anything, because no gate compares whitespace outside a fence.
+func TestReindentPlainPutsBackATabIndent(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		english string
+		in      string
+		want    string
+	}{
+		{
+			// talks/2012/insidepresent/wire.html, whose <style> block is not
+			// prose in any language.
+			"a tab indented style block",
+			"<style>\n#wire {\n\tborder: 1px solid #E0E0E0;\n\theight: 300px;\n}\n</style>\n",
+			"<style>\n#wire {\n border: 1px solid #E0E0E0;\n height: 300px;\n}\n</style>\n",
+			"<style>\n#wire {\n\tborder: 1px solid #E0E0E0;\n\theight: 300px;\n}\n</style>\n",
+		},
+		{
+			// codewalkdir.tmpl and error.tmpl, whose license header is a tab
+			// indented HTML comment.
+			"a tab indented license header",
+			"<!--\n\tCopyright 2010 The Go Authors. All rights reserved.\n-->\n",
+			"<!--\n Copyright 2010 The Go Authors. All rights reserved.\n-->\n",
+			"<!--\n\tCopyright 2010 The Go Authors. All rights reserved.\n-->\n",
+		},
+		{
+			// The line has to be the English's line. A translated line has
+			// nothing left to compare its indent against.
+			"a translated line keeps whatever indent it came back with",
+			"<!--\n\tCopyright 2010 The Go Authors.\n-->\n",
+			"<!--\n Bản quyền 2010 Các tác giả Go.\n-->\n",
+			"<!--\n Bản quyền 2010 Các tác giả Go.\n-->\n",
+		},
+		{
+			// Markdown indentation is written in spaces and four of them
+			// outside a fence is an indented code block, which is the author's.
+			// Requiring a tab in the English is what keeps this out of prose.
+			"a space indented line is left alone",
+			"Text.\n\n    indented code\n",
+			"Van ban.\n\n  indented code\n",
+			"Van ban.\n\n  indented code\n",
+		},
+		{
+			// Outside a fence there is no bracket giving a line to line
+			// correspondence, so an unequal line count is not repaired at all.
+			"a file that gained a line has no correspondence",
+			"<!--\n\tCopyright 2010 The Go Authors.\n-->\n",
+			"<!--\n\n Copyright 2010 The Go Authors.\n-->\n",
+			"<!--\n\n Copyright 2010 The Go Authors.\n-->\n",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := reindentPlain(tt.in, tt.english); got != tt.want {
+				t.Errorf("reindentPlain:\n got %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -947,6 +947,7 @@ func unautolink(text, english string) string {
 // translated comments the body loop deliberately will not touch, because after
 // it the same four spaces come off both sides.
 func reindent(text, english string) string {
+	text = reindentPlain(text, english)
 	lines, en := strings.Split(text, "\n"), strings.Split(english, "\n")
 	blocks, want := fenced(lines), fenced(en)
 	if len(blocks) == 0 || len(blocks) != len(want) {
@@ -1221,3 +1222,54 @@ func addedInTransit(r rune, english string) bool {
 // rather than easier, so the repair does less on a file than it would have done
 // on the chunk. That is the safe direction.
 func Unmangle(text, english string) string { return unmangle(text, english) }
+
+// reindentPlain is the same repair outside a fence.
+//
+// reindent only ever looked inside fenced blocks, because that is where the
+// damage was when it was written and because a fence gives it a line to line
+// correspondence for free. Everything else on this site indents too. A `.tmpl`
+// is a page of tab indented HTML with a handful of prose strings in it, a
+// `.html` talk page carries a `<style>` block, and the license header at the
+// top of both is a tab indented HTML comment. Three files came back from one
+// run with every leading tab replaced by a single space and nothing else
+// touched: codewalkdir.tmpl, error.tmpl and talks/2012/insidepresent/wire.html.
+// Not one gate said anything, because no gate compares whitespace outside a
+// fence, and the page renders the same. It is still not the file.
+//
+// The proof has to be stronger out here, because outside a fence there is no
+// bracket saying which line of the answer stands for which line of the English.
+// Three things have to hold at once. The two texts have the same number of
+// lines, which makes the correspondence positional and exact. The line is byte
+// identical to the English once the leading whitespace comes off, so a line
+// that was translated is left alone and the repair can only move the indent.
+// And the English's indent has a tab in it.
+//
+// The tab is the part that keeps this out of prose. Markdown indentation is
+// written in spaces, and four of them outside a fence is an indented code
+// block, which is the author's and sometimes the translator's. A tab out here
+// is not prose on this site at all: it is the tab indented HTML of a `.tmpl`,
+// the `<style>` block of a talk page, or the license header at the top of
+// either. All three files this was written for are that, and restricting it to
+// them is why the existing case for prose still holds.
+func reindentPlain(text, english string) string {
+	lines, en := strings.Split(text, "\n"), strings.Split(english, "\n")
+	if len(lines) != len(en) {
+		return text
+	}
+	changed := false
+	for i, line := range lines {
+		if line == en[i] || !strings.Contains(indentOf(en[i]), "\t") {
+			continue
+		}
+		body := strings.TrimLeft(line, " \t")
+		if body == "" || body != strings.TrimLeft(en[i], " \t") {
+			continue
+		}
+		lines[i] = indentOf(en[i]) + body
+		changed = true
+	}
+	if !changed {
+		return text
+	}
+	return strings.Join(lines, "\n")
+}
