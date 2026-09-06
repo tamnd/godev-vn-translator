@@ -104,8 +104,8 @@ type Input struct {
 	// translation, which only L01 is expected to have an opinion about.
 	EN, VI string
 	// ENDoc and VIDoc are the parsed forms, computed once and shared, because
-	// ten of the eighteen rules want them and parsing 480 files eighteen
-	// times over is eighteen times the work for the same answer.
+	// ten of the nineteen rules want them and parsing 480 files nineteen
+	// times over is nineteen times the work for the same answer.
 	ENDoc, VIDoc content.Document
 	// Glossary is the terminology the translation is held to. Nil disables L10
 	// rather than failing, so a checkout with no GLOSSARY.md still audits.
