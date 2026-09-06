@@ -651,6 +651,24 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 			"strings.Split(s, \"\\n\")",
 		},
 		{
+			// blog/two-recent-go-articles.md, blog/two-recent-go-talks.md and
+			// blog/sydney-gtug.md. Those escapes are YAML's and the English is
+			// no guide to them, because the English wrote curly quotes and
+			// needed none.
+			"a quote escaped in front matter",
+			"---\ntitle: Two recent Go articles\nsummary: \"Two Go articles: \u201cGo at Google\u201d\"\n---\n\nBody.\n",
+			"---\ntitle: Hai bai viet Go gan day\nsummary: \"Hai bai viet ve Go: \\\"Go at Google\\\"\"\n---\n\nThan bai.\n",
+			"---\ntitle: Hai bai viet Go gan day\nsummary: \"Hai bai viet ve Go: \\\"Go at Google\\\"\"\n---\n\nThan bai.\n",
+		},
+		{
+			// The body of the same file is not exempt, and this is what the
+			// exemption has to not cost.
+			"an escape in the body still comes off",
+			"---\ntitle: A\n---\n\nSee `go fix`.\n",
+			"---\ntitle: A\n---\n\nXem \\`go fix\\`.\n",
+			"---\ntitle: A\n---\n\nXem `go fix`.\n",
+		},
+		{
 			// Both defects at once, which is the common case and the reason the
 			// backslashes come off first.
 			"an escaped self link",
@@ -724,9 +742,9 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 			// matter did not parse, so cmd/golangorg would not start and the
 			// export had nothing to crawl. One character, whole site.
 			"an escaped colon in front matter",
-			`title: "//go:fix inline and the source-level inliner"`,
-			`title: "//go\:fix inline và trình nội tuyến cấp mã nguồn"`,
-			`title: "//go:fix inline và trình nội tuyến cấp mã nguồn"`,
+			"---\ntitle: \"//go:fix inline and the source-level inliner\"\n---\n",
+			"---\ntitle: \"//go\\:fix inline và trình nội tuyến cấp mã nguồn\"\n---\n",
+			"---\ntitle: \"//go:fix inline và trình nội tuyến cấp mã nguồn\"\n---\n",
 		},
 		{
 			"an answer with nothing wrong with it is untouched",

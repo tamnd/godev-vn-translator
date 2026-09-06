@@ -700,15 +700,9 @@ var entityRE = regexp.MustCompile(`&#(x[0-9a-fA-F]+|[0-9]+);`)
 // the eight answers on disk that is exactly what happened: thirty self linked
 // targets that the first ordering did not see.
 func unmangle(text, english string) string {
-	var b strings.Builder
-	runes := []rune(text)
-	for i := 0; i < len(runes); i++ {
-		if runes[i] == '\\' && i+1 < len(runes) && addedInTransit(runes[i+1], english) {
-			continue
-		}
-		b.WriteRune(runes[i])
-	}
-	text = selfLinkRE.ReplaceAllStringFunc(b.String(), func(m string) string {
+	head := content.BodyStart(text)
+	text = unescape(text[:head], english, true) + unescape(text[head:], english, false)
+	text = selfLinkRE.ReplaceAllStringFunc(text, func(m string) string {
 		g := selfLinkRE.FindStringSubmatch(m)
 		if g[1] != g[2] {
 			return m
@@ -945,6 +939,33 @@ func entityRune(entity string) (rune, bool) {
 		return 0, false
 	}
 	return rune(n), true
+}
+
+// unescape takes off the backslashes the converter added, with english as the
+// proof of which ones those are.
+//
+// frontMatter says the text is the block at the top of the file, where two
+// escapes are the format's own and stay whatever the English does. `summary:
+// "Hai bai viet ve Go: \"Go at Google\""` needs its quotes escaped and the
+// English needed none, because the English wrote curly quotes, so the test
+// below reads them as added in transit and the front matter stops parsing.
+// There are 12 backslashes in front matter under _content_vi in three files and
+// every one of them is that.
+//
+// Only `\"` and `\\`, not every escape. Both YAML and the JSON form under doc/
+// break without them, and neither format defines `\:`, so `//go\:fix inline`
+// in a title is damage in the front matter exactly as it is in the body.
+func unescape(text, english string, frontMatter bool) string {
+	var b strings.Builder
+	runes := []rune(text)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '\\' && i+1 < len(runes) && addedInTransit(runes[i+1], english) &&
+			!(frontMatter && (runes[i+1] == '"' || runes[i+1] == '\\')) {
+			continue
+		}
+		b.WriteRune(runes[i])
+	}
+	return b.String()
 }
 
 // addedInTransit says whether a backslash in front of this character can only

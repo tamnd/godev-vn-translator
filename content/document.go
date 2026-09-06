@@ -147,6 +147,22 @@ func Parse(kind Kind, text string) Document {
 	return doc
 }
 
+// BodyStart is the byte offset where the body begins, which is the end of the
+// front matter block or 0 in a file that has none.
+//
+// It is the same two regexps Parse uses, exported for the one caller that wants
+// the boundary without the parse: translate.unescape, which keeps `\"` and `\\`
+// inside front matter and takes them off everywhere else. The escaping there is
+// the format's rather than Markdown's, so `summary: "Hai bai viet ve Go: \"Go
+// at Google\""` is necessary and the English says nothing about it, because the
+// English wrote curly quotes and needed none.
+func BodyStart(text string) int {
+	if m := frontMatterRE.FindString(text); m != "" {
+		return len(m)
+	}
+	return len(jsonFrontMatterRE.FindString(text))
+}
+
 var commentRE = regexp.MustCompile(`(?s)<!--(.*?)-->`)
 
 // comments pulls out the HTML comments, which on this site are not remarks. A
