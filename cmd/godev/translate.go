@@ -22,13 +22,16 @@ const translateUsage = `usage: godev translate [flags] [path...]
 
 Translate the pages that need it and write the ones that come back clean.
 
-With no paths it takes the whole corpus, which is what a full run is. With paths
-it takes those files and the pieces of them that are not done, where a path is
-under _content: ref/mod.md, or a directory like blog/, or a section like doc.
+With paths it takes those files and the pieces of them that are not done, where
+a path is under _content: ref/mod.md, or a directory like blog/, or a section
+like doc. With no paths and none of -gap, -group or -all it does nothing and
+says so, because the whole corpus is 2597 pieces and is almost never the thing
+somebody meant to start.
 
 flags:
   -gap             only the files with no translation or a stale one, which is
                    the 41 file sync gap and is the work that matters first
+  -all             the whole corpus, every file, current or not
   -group NAME      one section of the site: blog, doc, ref, tour, talks, wiki
   -workers N       calls in flight, default the fleet's own lane count
   -budget N        bytes per piece, default 6000
@@ -49,6 +52,7 @@ func runTranslate(ctx context.Context, checkout string, args []string) error {
 	fs.Usage = func() { fmt.Fprint(os.Stderr, translateUsage) }
 	flags := addRouteFlags(fs)
 	gap := fs.Bool("gap", false, "only the files with no translation or a stale one")
+	all := fs.Bool("all", false, "the whole corpus, every file, current or not")
 	group := fs.String("group", "", "one section of the site")
 	workers := fs.Int("workers", 0, "calls in flight, default the fleet's lane count")
 	budget := fs.Int("budget", 0, "bytes per piece")
@@ -58,6 +62,10 @@ func runTranslate(ctx context.Context, checkout string, args []string) error {
 	root := fs.String("root", queueRoot(checkout), "queue directory")
 	expected := fs.Duration("expected", 0, "how long one piece is assumed to take")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if err := checkScope(fs.Args(), *gap, *all, *group, *planOnly || *assembleOnly); err != nil {
 		return err
 	}
 
@@ -157,6 +165,38 @@ func runTranslate(ctx context.Context, checkout string, args []string) error {
 		return err
 	}
 	return runErr
+}
+
+// checkScope refuses a run that did not say what it is about.
+//
+// `godev translate` with no arguments used to mean the whole corpus, on the
+// reasoning that a tool for translating a site should translate the site when
+// asked plainly. That reading is defensible and it is wrong here, because the
+// whole corpus is 675 files and 2597 pieces and a piece is two to ten minutes
+// on this fleet. It is days of work, it re-asks every page that is already
+// current, and nothing about the command line says any of that. It was started
+// by accident twice, both times by somebody who meant -gap and was interrupted
+// between deciding and typing.
+//
+// So the whole corpus needs -all, which is the same shape as the -force flag
+// below: a run that costs a lot has to say so out loud. A run scoped by path,
+// by -gap or by -group is saying what it is about already and needs nothing.
+//
+// free is -plan and -assemble, which ask no route anything. -plan over the
+// whole corpus is the honest way to find out what a full run would cost and
+// there is no reason to make somebody pass -all to learn that, and -assemble
+// over everything is in the README because writing the pages that are already
+// whole is a thing worth doing on its own.
+func checkScope(paths []string, gap, all bool, group string, free bool) error {
+	if free || all || gap || group != "" || len(paths) > 0 {
+		return nil
+	}
+	return fmt.Errorf("no scope given, so nothing was asked.\n" +
+		"  -gap             the files with no translation or a stale one, which is usually what is meant\n" +
+		"  -group blog      one section of the site\n" +
+		"  ref/mod.md       one page, or a directory\n" +
+		"  -all             the whole corpus, 2597 pieces, days of fleet time\n" +
+		"  -plan            what any of the above would ask, queueing nothing")
 }
 
 // selectPairs works out which files this run is about.
