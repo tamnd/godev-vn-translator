@@ -34,6 +34,13 @@ func crawlFixture(t *testing.T) (*crawl, func()) {
 	mux.HandleFunc("/doc/faq/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/doc/faq", http.StatusMovedPermanently)
 	})
+	mux.HandleFunc("/doc/effective_go", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(`<h1>Lập trình Go hiệu quả</h1>`))
+	})
+	mux.HandleFunc("/doc/effective_go.html", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/doc/effective_go", http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("/doc/articles/image_draw.html", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/blog/image-draw", http.StatusMovedPermanently)
 	})
@@ -163,6 +170,56 @@ func TestCrawlRedirectOffSite(t *testing.T) {
 	}
 	if len(c.queue) != 0 {
 		t.Errorf("queued %q, and none of it is on this site", c.queue)
+	}
+}
+
+// The stub for /doc/effective_go.html sits at doc/effective_go.html, and that
+// is the file a static host reaches for when it is asked for /doc/effective_go,
+// which is where the page is. Left alone it is a redirect to itself.
+func TestCrawlStubShadowingAPage(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	for _, p := range []string{"/doc/effective_go", "/doc/effective_go.html"} {
+		if err := c.fetch(context.Background(), p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.unshadow(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(c.out, "doc/effective_go.html")); !os.IsNotExist(err) {
+		t.Errorf("the stub is still there, so /doc/effective_go redirects to itself (%v)", err)
+	}
+	if got := read(t, c.out, "doc/effective_go/index.html"); !strings.Contains(got, "hiệu quả") {
+		t.Errorf("the page went with the stub:\n%s", got)
+	}
+	// The rule is what makes the old path a real 301 on a host that reads the
+	// table, so dropping the file must not drop the rule.
+	if len(c.redirects) != 1 || c.redirects[0].from != "/doc/effective_go.html" {
+		t.Errorf("recorded %+v, want the rule for the old path", c.redirects)
+	}
+	if want := []string{"doc/effective_go.html"}; len(c.shadowed) != 1 || c.shadowed[0] != want[0] {
+		t.Errorf("reported %q, want %q", c.shadowed, want)
+	}
+}
+
+// A stub only shadows something when a page has the same name without the
+// extension. Nothing is published at doc/articles/image_draw/, so that stub is
+// the only thing answering for the old path and it stays.
+func TestCrawlStubShadowingNothing(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	if err := c.fetch(context.Background(), "/doc/articles/image_draw.html"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.unshadow(); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, c.out, "doc/articles/image_draw.html"); !strings.Contains(got, "/blog/image-draw") {
+		t.Errorf("the stub was dropped and the old path leads nowhere:\n%s", got)
+	}
+	if len(c.shadowed) != 0 {
+		t.Errorf("reported %q, want nothing", c.shadowed)
 	}
 }
 

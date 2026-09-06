@@ -82,7 +82,11 @@ type Result struct {
 	// sorted. An export with a page missing is a real problem and a count of
 	// failures does not say which one, so the paths are carried out whole.
 	Skipped []string
-	Out     string
+	// Shadowed holds the redirect stubs that were written and then dropped
+	// because a static host would have served them in place of a page. See
+	// unshadow.
+	Shadowed []string
+	Out      string
 }
 
 // originHost is the host header every request carries.
@@ -151,6 +155,9 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		}
 	}
 
+	if err := c.unshadow(); err != nil {
+		return c.result(), err
+	}
 	if err := c.notFound(ctx); err != nil {
 		return c.result(), err
 	}
@@ -188,6 +195,21 @@ type crawl struct {
 	bytes     int64
 	skipped   []string
 	redirects []rule
+
+	// wrote and stubs are the files this run put down, split by what they are.
+	// Which of them collide is a fact about the whole export and not about the
+	// order the crawl reached things, so it is worked out at the end.
+	wrote    map[string]bool
+	stubs    map[string]bool
+	shadowed []string
+}
+
+// mark records a file the export wrote.
+func (c *crawl) mark(set *map[string]bool, file string) {
+	if *set == nil {
+		*set = map[string]bool{}
+	}
+	(*set)[file] = true
 }
 
 // rule is one line of the redirect table.
@@ -205,6 +227,7 @@ func (c *crawl) result() Result {
 		Redirects: len(c.redirects),
 		Bytes:     c.bytes,
 		Skipped:   c.skipped,
+		Shadowed:  c.shadowed,
 		Out:       c.out,
 	}
 }
@@ -237,7 +260,9 @@ func (c *crawl) fetch(ctx context.Context, p string) error {
 			c.enqueue(link)
 		}
 		c.pages++
-		return c.write(pagePath(p), []byte(html))
+		file := pagePath(p)
+		c.mark(&c.wrote, file)
+		return c.write(file, []byte(html))
 	case strings.Contains(a.ctype, "text/css"):
 		for _, ref := range CSSRefs(string(a.body), p) {
 			c.enqueue(ref)
@@ -283,7 +308,47 @@ func (c *crawl) redirect(from string, a answer) error {
 		status = 302
 	}
 	c.redirects = append(c.redirects, rule{from: from, to: target, status: status})
-	return c.write(pagePath(from), []byte(stub(target)))
+	file := pagePath(from)
+	c.mark(&c.stubs, file)
+	return c.write(file, []byte(stub(target)))
+}
+
+// unshadow drops the stubs a static host would serve in place of a page.
+//
+// go.dev still answers on the paths the site used to have. /doc/effective_go.html
+// is a 301 to /doc/effective_go, so the export writes a stub at
+// doc/effective_go.html and the page itself at doc/effective_go/index.html.
+// Both hosts resolve a request for /doc/effective_go by trying name.html before
+// name/index.html, so the reader gets the stub, and the stub sends them to
+// /doc/effective_go, which is the stub again. It is a loop, and it was on 34
+// pages of the export, including install, effective_go and every page of the
+// tutorial.
+//
+// Only one of the two files can answer for that address and the page is worth
+// more than the redirect, so the stub goes. The rule stays in _redirects, where
+// Cloudflare answers the old path with a real 301 now that no file sits in
+// front of it. GitHub Pages reads no such table, so there the old path becomes
+// a 404, which is the price of the mirror serving the page at the address
+// everything links to.
+func (c *crawl) unshadow() error {
+	for file := range c.stubs {
+		// A page can land on a path a stub already took, and then there is no
+		// stub there to drop.
+		if c.wrote[file] {
+			continue
+		}
+		page := strings.TrimSuffix(file, ".html") + "/index.html"
+		if page == file || !c.wrote[page] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(c.out, filepath.FromSlash(file))); err != nil {
+			return err
+		}
+		c.opts.Log("dropped %s, which a host would serve instead of %s", file, page)
+		c.shadowed = append(c.shadowed, file)
+	}
+	sort.Strings(c.shadowed)
+	return nil
 }
 
 // stub is the page left at a redirected path for hosts that cannot redirect.
