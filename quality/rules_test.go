@@ -187,6 +187,53 @@ func TestLinksReportsANestedTarget(t *testing.T) {
 	}
 }
 
+// A url the English writes plain, wrapped in a link to itself. 202 of the 217
+// self links under _content_vi are this, and no gate saw any of them, because
+// L07 reads the links the English has and a link the translation invented is
+// not one of those.
+func TestSelfLinks(t *testing.T) {
+	en := "Doc tai https://vuln.go.dev de biet them.\n"
+	got := count(t, ruleSelfLinks, en,
+		"Doc tai [https://vuln.go.dev](https://vuln.go.dev) de biet them.\n", 1)
+	for _, want := range []string{"https://vuln.go.dev", "writes that url plain"} {
+		if !strings.Contains(got[0].Msg, want) {
+			t.Errorf("message %q does not mention %q", got[0].Msg, want)
+		}
+	}
+
+	// The url left alone is the answer, and it is what unmangle produces.
+	count(t, ruleSelfLinks, en, "Doc tai https://vuln.go.dev de biet them.\n", 0)
+
+	// blog/govulncheck.md and eleven other files write a self link on purpose.
+	self := "See [https://vuln.go.dev](https://vuln.go.dev).\n"
+	count(t, ruleSelfLinks, self, "Xem [https://vuln.go.dev](https://vuln.go.dev).\n", 0)
+
+	// One for one, so a page that writes one and gets two back is still caught.
+	count(t, ruleSelfLinks, self,
+		"Xem [https://vuln.go.dev](https://vuln.go.dev) va [https://vuln.go.dev](https://vuln.go.dev).\n", 1)
+
+	// A link with a label is not this rule's business, whatever L07 makes of it.
+	count(t, ruleSelfLinks, en, "Doc tai [co so du lieu](https://vuln.go.dev).\n", 0)
+
+	// The converter running over its own output. blog/gofix.md and
+	// doc/go1.25.md both reached _content_vi with one of these in an HTML
+	// comment. It parses as one link whose label is `[url`, because a label
+	// cannot hold a `]` and the parser stops at the first one.
+	count(t, ruleSelfLinks, "<!-- see https://vuln.go.dev -->\n",
+		"<!-- xem [[https://vuln.go.dev](https://vuln.go.dev)](https://vuln.go.dev](https://vuln.go.dev)) -->\n", 1)
+
+	// A label that is not the target is not this, whatever brackets are in it.
+	count(t, ruleSelfLinks, "See [[1]](/ref/spec).\n", "Xem [[1]](/ref/spec).\n", 0)
+
+	// A url the English does not write at all reads differently, because there
+	// is nothing to say it came from the page.
+	got = count(t, ruleSelfLinks, "Doc tai co so du lieu.\n",
+		"Doc tai [https://vuln.go.dev](https://vuln.go.dev).\n", 1)
+	if !strings.Contains(got[0].Msg, "does not write at all") {
+		t.Errorf("message %q does not say the English never wrote it", got[0].Msg)
+	}
+}
+
 func TestActions(t *testing.T) {
 	// site.tmpl's alt text is prose and must be allowed to change.
 	en := `{{- $alt := "Go gophers with wrench"}}`

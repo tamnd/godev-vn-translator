@@ -1240,6 +1240,76 @@ var ruleNotice = Rule{
 	},
 }
 
+// L19. A url the English wrote plain came back as a link to itself.
+//
+// `[https://vuln.go.dev](https://vuln.go.dev)` is what a browser session makes
+// of a bare url on the way back, and translate.unmangle undoes it wherever the
+// English proves it is damage. This gate is for what is left over.
+//
+// Two things are left over and both of them shipped. The first is a converter
+// that ran over its own output more than once, so blog/gofix.md reached
+// _content_vi carrying
+// `<!-- xem [[url](url)](url](url)) -->` where the English has
+// `<!-- see https://go.dev/blog/survey2025#challenges -->`. The brackets in
+// that are no longer balanced, unwrapping the innermost link leaves the rest of
+// the pile standing, and a repair that makes a broken line slightly less broken
+// is worth nothing. The second is the shape the repair deliberately will not
+// touch, a self link at a target the English does link somewhere, where
+// flattening it could take a real link away.
+//
+// No gate saw either of them. L07 reads the links the English has and asks
+// whether the translation still has them, so a link the translation invented is
+// invisible to it, and that is the whole of the blind spot: 202 of the 217 self
+// links under _content_vi are at a target the English never links at all.
+//
+// A self link the English writes itself is fine and there are 13 of them, in
+// blog/govulncheck.md, blog/vscode-go.md, doc/security/vuln/database.md and
+// nine other files. Matching is by target and one for one, so a page that
+// writes one and gets two back is still caught.
+var ruleSelfLinks = Rule{
+	ID: "L19", Name: "self links", Severity: Refuse,
+	Check: func(in Input) []Finding {
+		have := map[string]int{}
+		for _, l := range in.ENDoc.Links {
+			if selfLink(l) {
+				have[l.Target]++
+			}
+		}
+		var out []Finding
+		for _, l := range in.VIDoc.Links {
+			if !selfLink(l) {
+				continue
+			}
+			if have[l.Target] > 0 {
+				have[l.Target]--
+				continue
+			}
+			wrote := "which the English does not write at all"
+			if strings.Contains(in.EN, l.Target) {
+				wrote = "where the English writes that url plain"
+			}
+			out = append(out, Finding{
+				Line: escapeLine(in.VI, "["+l.Target+"]("),
+				Msg: fmt.Sprintf(
+					"writes `[%s](%s)`, a link whose text is its own target, %s. Write the url on its own",
+					l.Target, l.Target, wrote),
+			})
+		}
+		return out
+	},
+}
+
+// selfLink says whether a link's label is its own target.
+//
+// The brackets come off the label first, because the converter has been seen
+// running over its own output. `<!-- xem [[url](url)](url](url)) -->` in
+// blog/gofix.md parses as one link whose label is `[url` and whose target is
+// `url`, since a label cannot hold a `]` and the parser stops at the first one.
+// That is the same defect twice over and it has to read as one.
+func selfLink(l content.Link) bool {
+	return strings.Trim(l.Text, "[]") == l.Target
+}
+
 // noticePhrases are the parts of the Go license header that never occur in a
 // sentence about the license. See ruleNotice for what was tried and rejected.
 var noticePhrases = []string{
