@@ -754,8 +754,9 @@ func TestTransport(t *testing.T) {
 	}
 }
 
-// The three real files, the two phrases that were rejected as too broad, and
-// the case where a phrase legitimately appears more than once.
+// The three real files, the two phrases that were rejected as too broad, the
+// case where a phrase legitimately appears more than once, and the header whose
+// first two lines came back intact.
 func TestNotice(t *testing.T) {
 	header := "// Copyright 2011 The Go Authors. All rights reserved.\n" +
 		"// Use of this source code is governed by a BSD-style\n" +
@@ -768,7 +769,7 @@ func TestNotice(t *testing.T) {
 		"// Copyright 2011 The Go Authors. All rights reserved.\n" +
 		"// Việc sử dụng mã nguồn này được điều chỉnh bởi giấy phép kiểu BSD\n" +
 		"// có thể được tìm thấy trong tệp LICENSE.\n</pre>\n"
-	if got := check(t, ruleNotice, en, vi); len(got) != 1 {
+	if got := check(t, ruleNotice, en, vi); len(got) != 2 {
 		t.Errorf("a translated license line must be refused, got %d: %v", len(got), got)
 	}
 
@@ -776,8 +777,19 @@ func TestNotice(t *testing.T) {
 	// of it went.
 	viAll := "<!--\n Copyright 2010 Các tác giả Go. Mọi quyền được bảo lưu.\n" +
 		" Việc sử dụng mã nguồn này chịu sự điều chỉnh của giấy phép kiểu BSD\n-->\n"
-	if got := check(t, ruleNotice, "<!--\n"+header+"-->\n", viAll); len(got) != 2 {
-		t.Errorf("both phrases must be refused, got %d: %v", len(got), got)
+	if got := check(t, ruleNotice, "<!--\n"+header+"-->\n", viAll); len(got) != 3 {
+		t.Errorf("all three phrases must be refused, got %d: %v", len(got), got)
+	}
+
+	// The same file again, from the run that added the third phrase. The first
+	// two lines came back untouched and only the third went, which the rule read
+	// as two phrases present and nothing to say. A fixed string checked in two
+	// of its three lines is not checked at all.
+	viThird := "<!--\n// Copyright 2011 The Go Authors. All rights reserved.\n" +
+		"// Use of this source code is governed by a BSD-style\n" +
+		"// có thể tìm thấy trong tệp LICENSE.\n-->\n"
+	if got := check(t, ruleNotice, "<!--\n"+header+"-->\n", viThird); len(got) != 1 {
+		t.Errorf("a translated third line must be refused, got %d: %v", len(got), got)
 	}
 
 	// The header reproduced is the ordinary case and says nothing.
@@ -800,7 +812,7 @@ func TestNotice(t *testing.T) {
 
 	// Two headers in one file and one of them translated. Counting rather than
 	// asking whether the phrase is present at all is what catches this.
-	if got := check(t, ruleNotice, header+"\n"+header, header+"\nBản quyền của Các tác giả Go.\n"); len(got) != 2 {
+	if got := check(t, ruleNotice, header+"\n"+header, header+"\nBản quyền của Các tác giả Go.\n"); len(got) != 3 {
 		t.Errorf("the second header must be refused, got %d: %v", len(got), got)
 	}
 
