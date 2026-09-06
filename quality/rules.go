@@ -1299,6 +1299,65 @@ var ruleSelfLinks = Rule{
 	},
 }
 
+// L20. The front matter came back in the other bracket.
+//
+// The site reads two forms of front matter and they are not interchangeable.
+// parseMeta in internal/web lowercases every key of the JSON form and leaves
+// the keys of the YAML form as written, and every consumer looks the key up in
+// lower case: render.go asks for p["template"] and site.go asks for the same.
+// So a page whose English opens `<!--{ "Template": true }-->` and whose
+// Vietnamese opens `---` / `Template: true` / `---` has silently lost the flag.
+// The body stops being run through text/template, and the title goes with it.
+//
+// The other half of it is worse. Four pages came back with the English's JSON
+// object still intact and a pair of `---` fences wrapped around the outside,
+// which sends `<!--{` to yaml.Unmarshal, and a file whose metadata fails to
+// parse does not render at all.
+//
+// Twelve pages were in one state or the other and no gate saw any of them.
+// L09 compares the key names and the key names had not changed. Only the
+// bracket around them had, and nothing was reading the bracket. That is the
+// same shape of blindness as L19: a rule that asks whether the English's things
+// survived cannot see a change that keeps all of them and alters what they mean.
+//
+// It is a Refuse and it can be, because translate.refront puts the English's
+// form back wherever it can and this only fires on what is left.
+var ruleFrontMatterForm = Rule{
+	ID: "L20", Name: "front matter form", Severity: Refuse,
+	Kinds: []content.Kind{content.KindMarkdown, content.KindHTML},
+	Check: func(in Input) []Finding {
+		en := content.FrontMatterForm(in.EN)
+		vi := content.FrontMatterForm(in.VI)
+		if en == vi {
+			return nil
+		}
+		// One of the two has to be the JSON form for this to be about front
+		// matter at all. The rule runs on chunks as well as on files, and a
+		// chunk that opens mid body can open on a `---` thematic break, which
+		// the fence pattern will read as front matter on whichever side has a
+		// second one. A json is proof the top of the file is in hand. The
+		// mismatch this leaves out, a page that dropped its front matter
+		// outright, is what L09 reports as an emptied key list.
+		if en != "json" && vi != "json" {
+			return nil
+		}
+		return []Finding{{Line: 1, Msg: fmt.Sprintf(
+			"front matter is written as %s and the English writes it as %s. The site reads the two differently and only lowercases the keys of the JSON form",
+			name(vi), name(en))}}
+	},
+}
+
+// name says a front matter form the way a sentence wants it.
+func name(form string) string {
+	switch form {
+	case "json":
+		return "a JSON object in an HTML comment"
+	case "yaml":
+		return "YAML between --- fences"
+	}
+	return "nothing at all"
+}
+
 // selfLink says whether a link's label is its own target.
 //
 // The brackets come off the label first, because the converter has been seen

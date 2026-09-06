@@ -1349,3 +1349,64 @@ func TestProofOfSplitsTheEnglish(t *testing.T) {
 		}
 	}
 }
+
+// TestRefrontPutsTheBracketBack covers the twelve pages that came back with the
+// site's JSON front matter turned into YAML or wrapped in YAML fences. Both are
+// invisible to L09, because the keys survive either way, and both change what
+// the site does with the page.
+func TestRefrontPutsTheBracketBack(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		english string
+		in      string
+		want    string
+	}{
+		{
+			"the object was converted to YAML",
+			"<!--{\n  \"Template\": true,\n  \"Title\": \"Go Modules Reference\"\n}-->\n\nHello.\n",
+			"---\nTemplate: true\nTitle: Tham chiếu về Go Modules\n---\n\nXin chào.\n",
+			"<!--{\n  \"Template\": true,\n  \"Title\": \"Tham chiếu về Go Modules\"\n}-->\n\nXin chào.\n",
+		},
+		{
+			// The four that did this kept the object exactly and put fences
+			// around it, which is the worse half: yaml.Unmarshal is handed
+			// `<!--{` and the page stops rendering at all.
+			"the object was wrapped in fences",
+			"<!--{\n\t\"Title\": \"Documentation\",\n\t\"HideTOC\": true\n}-->\n\n<p>Hi.</p>\n",
+			"---\n<!--{\n \"Title\": \"Tài liệu\",\n \"HideTOC\": true\n}-->\n---\n\n<p>Chào.</p>\n",
+			"<!--{\n\t\"Title\": \"Tài liệu\",\n\t\"HideTOC\": true\n}-->\n\n<p>Chào.</p>\n",
+		},
+		{
+			// The English's tabs come back with it, because the repair rebuilds
+			// the English's block rather than reformatting the answer's.
+			"a quoted YAML value loses its quotes on the way in",
+			"<!--{\n\t\"Title\": \"Managing Go Installations\"\n}-->\n\nBody.\n",
+			"---\nTitle: \"Quản lý các bản cài đặt Go\"\n---\n\nThân bài.\n",
+			"<!--{\n\t\"Title\": \"Quản lý các bản cài đặt Go\"\n}-->\n\nThân bài.\n",
+		},
+		{
+			"an English page written in YAML is left alone",
+			"---\ntitle: Go 1.24 Release Notes\n---\n\nHello.\n",
+			"---\ntitle: Ghi chú phát hành Go 1.24\n---\n\nXin chào.\n",
+			"---\ntitle: Ghi chú phát hành Go 1.24\n---\n\nXin chào.\n",
+		},
+		{
+			"a key the answer dropped is not guessed at",
+			"<!--{\n  \"Template\": true,\n  \"Title\": \"Tutorial\"\n}-->\n\nHello.\n",
+			"---\nTitle: Hướng dẫn\n---\n\nXin chào.\n",
+			"---\nTitle: Hướng dẫn\n---\n\nXin chào.\n",
+		},
+		{
+			"a key the answer invented is not accepted either",
+			"<!--{\n  \"Title\": \"Tutorial\"\n}-->\n\nHello.\n",
+			"---\nTitle: Hướng dẫn\ntemplate: true\n---\n\nXin chào.\n",
+			"---\nTitle: Hướng dẫn\ntemplate: true\n---\n\nXin chào.\n",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := refront(tt.in, tt.english); got != tt.want {
+				t.Errorf("refront:\n got %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}

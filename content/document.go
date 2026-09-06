@@ -163,6 +163,26 @@ func BodyStart(text string) int {
 	return len(jsonFrontMatterRE.FindString(text))
 }
 
+// FrontMatterForm names the bracket a file opens with: "json" for a JSON object
+// inside an HTML comment, "yaml" for a block between `---` fences, and "" for a
+// file that has neither.
+//
+// It reads the raw text and not a parsed Document, because the raw text is what
+// the site reads. parseMeta in internal/web branches on these same two
+// prefixes, and the branches do not do the same thing: the JSON one lowercases
+// every key on the way out and the YAML one leaves them alone. So the bracket is
+// not presentation. It decides whether `Template: true` is a flag the site obeys
+// or a key nobody ever looks up.
+func FrontMatterForm(text string) string {
+	if jsonFrontMatterRE.MatchString(text) {
+		return "json"
+	}
+	if frontMatterRE.MatchString(text) {
+		return "yaml"
+	}
+	return ""
+}
+
 var commentRE = regexp.MustCompile(`(?s)<!--(.*?)-->`)
 
 // comments pulls out the HTML comments, which on this site are not remarks. A
