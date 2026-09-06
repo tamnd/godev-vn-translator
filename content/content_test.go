@@ -16,6 +16,7 @@ func root(t *testing.T) Root {
 		"doc/devel/weekly.html",
 		"js/site.js",
 		"talks/2013/highperf/mart/1/app.yaml",
+		"talks/2012/simple/webfront/testdata/index.html",
 	} {
 		p := filepath.Join(dir, EnglishDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -62,6 +63,7 @@ func TestFindRefusesASkippedPage(t *testing.T) {
 		"./doc/devel/weekly.html",
 		"js/site.js",
 		"talks/2013/highperf/mart/1/app.yaml",
+		"talks/2012/simple/webfront/testdata/index.html",
 	} {
 		_, err := r.Find(rel)
 		if !errors.Is(err, ErrSkipped) {
@@ -82,5 +84,32 @@ func TestFindOnAMissingPageIsNotSkipped(t *testing.T) {
 	}
 	if errors.Is(err, ErrSkipped) {
 		t.Errorf("Find on a missing page = %v, want a plain error", err)
+	}
+}
+
+// A testdata directory is out of the corpus wherever it sits, because what is
+// in one is the expected output of a test and not prose. The one under _content
+// today holds `contents of index.html`, which server_test.go asserts byte for
+// byte and which a run translated.
+func TestTestdataIsSkippedAtAnyDepth(t *testing.T) {
+	for _, rel := range []string{
+		"talks/2012/simple/webfront/testdata/index.html",
+		"testdata/index.html",
+		"a/b/testdata/c/d.md",
+	} {
+		if !Skipped(rel) {
+			t.Errorf("Skipped(%q) = false, want true", rel)
+		}
+	}
+	// The word has to be the whole directory name. A page about test data is a
+	// page.
+	for _, rel := range []string{
+		"doc/testdata.md",
+		"blog/testdata-and-you.md",
+		"doc/mytestdata/x.md",
+	} {
+		if Skipped(rel) {
+			t.Errorf("Skipped(%q) = true, want false", rel)
+		}
 	}
 }

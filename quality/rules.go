@@ -1206,13 +1206,22 @@ var banners = []string{
 // blog/go-brand/Go-Logo/copyright.txt, which is the notice inside the logo
 // archive. Three files, three different shapes, one rule.
 //
-// The two phrases are the ones that only ever occur in the notice. "BSD-style"
-// on its own is not one of them: project.html and both install pages say "a
-// BSD-style license" in a sentence and translate it correctly, which is right,
-// because a sentence about the license is prose. "The Go Authors" is not one
-// either, since blog/2years.md has "The Go Authors went on to produce lots of
-// libraries". The full phrases occur nine times each across the corpus and
-// every one of them is the notice.
+// The three phrases are the ones that only ever occur in the notice.
+// "BSD-style" on its own is not one of them: project.html and both install
+// pages say "a BSD-style license" in a sentence and translate it correctly,
+// which is right, because a sentence about the license is prose. "The Go
+// Authors" is not one either, since blog/2years.md has "The Go Authors went on
+// to produce lots of libraries". The full phrases occur nine times each across
+// the corpus and every one of them is the notice.
+//
+// The third phrase was added later and by the same route as the rule itself.
+// codewalkdir.tmpl came back from a run with the first two lines of its header
+// intact and the third translated to `có thể tìm thấy trong tệp LICENSE.`, so
+// L18 read two phrases, found both, and passed a header that is no longer the
+// notice. Checking a fixed string in two of its three lines is checking it in
+// none of them. All 127 English files that carry the second line carry the
+// third on one line of its own, so the phrase covers the same files the other
+// two do.
 //
 // Refuse and not notice. There is no judgement in reproducing a legal notice,
 // and the file that had it wrong was instructing people to copy it.
@@ -1374,6 +1383,7 @@ func selfLink(l content.Link) bool {
 var noticePhrases = []string{
 	"The Go Authors. All rights reserved",
 	"Use of this source code is governed by",
+	"license that can be found in the LICENSE file",
 }
 
 // TransportError returns the banner a piece of text is really made of, or "".

@@ -22,6 +22,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -127,6 +128,10 @@ func (k Kind) Translatable() bool {
 // The other `.yaml` under _content is site content and stays: `menus.yaml`,
 // `testimonials.yaml`, `resources.yaml` and the seven under `learn/` are lists
 // of titles and descriptions a reader sees.
+//
+// A testdata directory is skipped too, and that one is in skipped rather than
+// here because it is a rule about a directory name and not a place. See
+// inTestdata.
 var Skip = []string{
 	"tour/static/js",
 	"tour/static/lib",
@@ -156,7 +161,26 @@ func skipped(rel string) bool {
 			return true
 		}
 	}
-	return false
+	return inTestdata(rel)
+}
+
+// inTestdata reports whether any directory on the path is testdata.
+//
+// It is a segment check and not a prefix in Skip because it is a rule about
+// what a directory means rather than a fact about one place. Today there is one
+// such directory under _content, talks/2012/simple/webfront/testdata, holding
+// one translatable file, and translating it is a defect of exactly the kind the
+// .txt exclusion in Translatable was written for. index.html there says
+// `contents of index.html`, server_test.go:63 asserts that the server returns
+// `"contents of index.html\n"`, and a run translated it to
+// `nội dung của index.html`. The file is not prose. It is the expected output
+// of a test, and the whole of its meaning is that it is a fixed string.
+//
+// Doing it by segment means the next testdata directory an upstream sync brings
+// in is out of the corpus on the day it arrives rather than on the day somebody
+// reads a diff and notices.
+func inTestdata(rel string) bool {
+	return slices.Contains(strings.Split(rel, "/"), "testdata")
 }
 
 // Pair is one English file and the Vietnamese that stands for it.
