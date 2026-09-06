@@ -609,7 +609,22 @@ var selfLinkRE = regexp.MustCompile(`\]\(\[([^\[\]()\s]+)\]\(([^\[\]()\s]+)\)\)`
 // so their links are attributes, and the converter autolinks the url in an
 // attribute as readily as one in prose. Double quotes only, because that is
 // what every anchor in the corpus uses and what the evidence shows.
-var attrSelfLinkRE = regexp.MustCompile(`(href|src)="\[([^\[\]"]+)\]\(([^()"]+)\)"`)
+//
+// Any attribute, not just the two that carry links. This was `(href|src)` until
+// `blog/survey2017/community.html` came back with
+// `xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)"` on an
+// inline SVG, which is a namespace and not a link and is just as broken. No
+// attribute value in any markup is a Markdown link, so the name it goes by
+// makes no difference to whether a self link in it is damage.
+var attrSelfLinkRE = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9:_.-]*)="\[([^\[\]"]+)\]\(([^()"]+)\)"`)
+
+// definitionRE matches the label of a link reference definition, `[label]: `
+// written at the start of a line with the target after it.
+//
+// The label can hold anything but a bracket, including the spaces and
+// parentheses in `[cross-site request forgery (csrf)]: `, which is a real one
+// in doc/go1.25.md.
+var definitionRE = regexp.MustCompile(`^\[[^\[\]]+\]:[ \t]+`)
 
 // autolinkRE matches the same defect again, `[url](url)` where the page wrote
 // the url on its own with no link around it at all.
@@ -718,22 +733,45 @@ func unmangle(text, english string) string {
 	return reindent(text, english)
 }
 
-// unautolink takes the link back off a bare url inside a fenced block.
+// unautolink takes the link back off a bare url.
 //
-// Only inside a fenced block, and that restriction is what makes the repair
-// safe rather than clever. In prose `[url](url)` and a bare url render the same
-// and carry the same target, so unwrapping one there changes a translation
-// nobody complained about, and there is a shape it would get wrong: an English
-// `[the feedback form](https://x)` whose label came back as the url is a link
-// this would flatten into text, turning an answer the gates accept into one
-// they refuse for a dropped link. Inside a fence none of that is possible. L06
-// requires the code outside its comments to be the English character for
-// character, the corpus has no Markdown link inside any fence, and a url is
-// there because a reader is meant to type it or read it as output.
+// A url written on its own is autolinked too, so `$ curl http://localhost:8080/albums`,
+// a command a reader is meant to type, comes back as
+// `$ curl [http://localhost:8080/albums](http://localhost:8080/albums)`, which
+// is not a command. Neither repair above reaches it, because one needs the `](`
+// of a real link and the other needs an attribute, and a url on its own has
+// neither.
 //
-// The proof is still the English. The url has to appear in it bare, and the
-// linked form must not appear in it at all, so the repair only ever undoes
-// something the answer added.
+// The proof is the English. The url has to appear in it bare, and the linked
+// form must not appear in it at all, so the repair only ever undoes something
+// the answer added. That much is not a judgement call: `[url](url)` and a bare
+// url render the same and carry the same target, so where the English wrote one
+// and the answer wrote the other, the answer wrote it in transit.
+//
+// This ran only inside fenced blocks at first, out of a worry about one shape
+// it could get wrong: an English `[the feedback form](https://x)` whose label
+// came back as its own target arrives as `[https://x](https://x)`, and
+// unwrapping that flattens a real link into text. Counting the corpus settled
+// it. There are 217 self links under _content_vi and 202 of them are at a
+// target the English never links at all, which is transport damage every time,
+// against 13 that copy a self link the English itself wrote and 2 that are the
+// reference definitions below. The shape that was worried about does not occur.
+//
+// So outside a fence there is one more condition: the English must not link
+// that target anywhere. Where it does, the answer is left alone and the gates
+// decide, which is the same deal the backslashes get. Inside a fence that
+// condition is dropped, because L06 requires the code outside its comments to
+// be the English character for character, no fence in the corpus holds a
+// Markdown link, and a url is in one because a reader types it or reads it as
+// output.
+//
+// A link reference definition is the third case and it drops the condition too.
+// `[sec-fetch-site]: https://developer.mozilla.org/...` came back with the url
+// linked to itself, which stops being a definition, so every `[text][sec-fetch-site]`
+// on the page stops being a link. The English does link that target, inline,
+// further up the same file, so the general condition would leave it. It is
+// still damage: the target slot of a definition is a url and nothing else, and
+// four definitions in two files reached _content_vi broken this way.
 //
 // A link with a bracket against either end of it is left alone, and that is the
 // one case worth naming because it is real. The same converter has been seen
@@ -741,32 +779,40 @@ func unmangle(text, english string) string {
 // came back as three links nested inside each other with the brackets no longer
 // balanced. Unwrapping the innermost one leaves the rest of the pile standing
 // and the line is still not the English, so the repair would have taken a line
-// that is obviously broken and made it slightly less broken for nothing. L06
+// that is obviously broken and made it slightly less broken for nothing. A gate
 // refuses it, the piece is asked again carrying that finding, and a second ask
 // is the right answer to an answer this mangled.
 func unautolink(text, english string) string {
 	lines := strings.Split(text, "\n")
-	changed := false
+	code := map[int]bool{}
 	for _, block := range fenced(lines) {
 		for i := block[0]; i < block[1]; i++ {
-			was := lines[i]
-			line := was
-			for _, at := range autolinkRE.FindAllStringSubmatchIndex(was, -1) {
-				m, url, target := was[at[0]:at[1]], was[at[2]:at[3]], was[at[4]:at[5]]
-				if url != target || strings.Contains(english, m) || !strings.Contains(english, url) {
-					continue
-				}
-				if at[0] > 0 && was[at[0]-1] == '[' {
-					continue
-				}
-				if at[1] < len(was) && (was[at[1]] == ']' || was[at[1]] == '(') {
-					continue
-				}
-				line = strings.Replace(line, m, url, 1)
-			}
-			lines[i] = line
-			changed = changed || line != was
+			code[i] = true
 		}
+	}
+	changed := false
+	for i, was := range lines {
+		line := was
+		label := definitionRE.FindString(was)
+		for _, at := range autolinkRE.FindAllStringSubmatchIndex(was, -1) {
+			m, url, target := was[at[0]:at[1]], was[at[2]:at[3]], was[at[4]:at[5]]
+			if url != target || strings.Contains(english, m) || !strings.Contains(english, url) {
+				continue
+			}
+			if at[0] > 0 && was[at[0]-1] == '[' {
+				continue
+			}
+			if at[1] < len(was) && (was[at[1]] == ']' || was[at[1]] == '(') {
+				continue
+			}
+			definition := label != "" && at[0] == len(label)
+			if !code[i] && !definition && strings.Contains(english, "]("+url+")") {
+				continue
+			}
+			line = strings.Replace(line, m, url, 1)
+		}
+		lines[i] = line
+		changed = changed || line != was
 	}
 	if !changed {
 		return text

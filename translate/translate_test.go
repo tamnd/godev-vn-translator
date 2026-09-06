@@ -673,6 +673,15 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 			`<img src="/images/gopher.png">`,
 		},
 		{
+			// An attribute that is not a link at all. blog/survey2017/community.html
+			// has an inline SVG and its namespace came back linked to itself,
+			// which is broken for the same reason and by the same converter.
+			"an attribute that carries no link",
+			`<svg xmlns="http://www.w3.org/2000/svg">`,
+			`<svg xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)">`,
+			`<svg xmlns="http://www.w3.org/2000/svg">`,
+		},
+		{
 			// Same rule as the Markdown form. Two different urls is a thing that
 			// cannot be repaired without guessing what was meant.
 			"two different urls in an href are left alone",
@@ -1050,6 +1059,10 @@ func TestReindentPutsBackTheIndentOfAFenceMarker(t *testing.T) {
 // converter on the way back autolinks it, which turns `$ curl http://x` into
 // `$ curl [http://x](http://x)`, and L06 refuses a block that is otherwise the
 // English character for character. One answer lost five urls this way.
+//
+// It does the same to a url in prose, and to the target slot of a link
+// reference definition, where it stops the definition being a definition. There
+// are 202 of these under _content_vi at a target the English never links.
 func TestUnautolinkTakesTheLinkBackOffABareURL(t *testing.T) {
 	for _, tt := range []struct {
 		name, answer, english, want string
@@ -1067,10 +1080,40 @@ func TestUnautolinkTakesTheLinkBackOffABareURL(t *testing.T) {
 			want:    "```\nsee https://vuln.go.dev and https://go.dev/s/x\n```\n",
 		},
 		{
-			name:    "the same shape in prose is left alone",
+			name:    "a bare url in prose",
 			english: "Doc tai https://vuln.go.dev de biet them.\n",
 			answer:  "Doc tai [https://vuln.go.dev](https://vuln.go.dev) de biet them.\n",
-			want:    "Doc tai [https://vuln.go.dev](https://vuln.go.dev) de biet them.\n",
+			want:    "Doc tai https://vuln.go.dev de biet them.\n",
+		},
+		{
+			name:    "a target the English links in prose is left to the gates",
+			english: "Doc [co so du lieu](https://vuln.go.dev), va https://vuln.go.dev.\n",
+			answer:  "Doc [https://vuln.go.dev](https://vuln.go.dev), va https://vuln.go.dev.\n",
+			want:    "Doc [https://vuln.go.dev](https://vuln.go.dev), va https://vuln.go.dev.\n",
+		},
+		{
+			name:    "the same target inside a fence is repaired anyway",
+			english: "Doc [co so du lieu](https://vuln.go.dev).\n\n```\n$ curl https://vuln.go.dev\n```\n",
+			answer:  "Doc [co so du lieu](https://vuln.go.dev).\n\n```\n$ curl [https://vuln.go.dev](https://vuln.go.dev)\n```\n",
+			want:    "Doc [co so du lieu](https://vuln.go.dev).\n\n```\n$ curl https://vuln.go.dev\n```\n",
+		},
+		{
+			name:    "a reference definition is repaired even though the English links that target",
+			english: "Doc [ve csrf](https://x/CSRF).\n\n[csrf]: https://x/CSRF\n",
+			answer:  "Doc [ve csrf](https://x/CSRF).\n\n[csrf]: [https://x/CSRF](https://x/CSRF)\n",
+			want:    "Doc [ve csrf](https://x/CSRF).\n\n[csrf]: https://x/CSRF\n",
+		},
+		{
+			name:    "a definition label with spaces and parentheses",
+			english: "[cross-site request forgery (csrf)]: https://x/CSRF\n",
+			answer:  "[cross-site request forgery (csrf)]: [https://x/CSRF](https://x/CSRF)\n",
+			want:    "[cross-site request forgery (csrf)]: https://x/CSRF\n",
+		},
+		{
+			name:    "a link on a definition line but not in the target slot",
+			english: "[csrf]: https://x/CSRF \"doc https://x/y\"\n\nXem [y](https://x/y).\n",
+			answer:  "[csrf]: https://x/CSRF \"doc [https://x/y](https://x/y)\"\n\nXem [y](https://x/y).\n",
+			want:    "[csrf]: https://x/CSRF \"doc [https://x/y](https://x/y)\"\n\nXem [y](https://x/y).\n",
 		},
 		{
 			name:    "a real link is not a link to itself",
