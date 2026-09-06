@@ -409,3 +409,26 @@ func TestAFenceLineIndentedLessThanItsMarker(t *testing.T) {
 		})
 	}
 }
+
+// The site reads two forms of front matter and does not do the same thing with
+// them, so which bracket a file opens with is a fact about the page and not
+// about its formatting.
+func TestFrontMatterForm(t *testing.T) {
+	for _, tt := range []struct {
+		in   string
+		want string
+	}{
+		{"<!--{\n  \"Title\": \"Documentation\"\n}-->\n\nHello.\n", "json"},
+		{"---\ntitle: Go 1.24 Release Notes\n---\n\nHello.\n", "yaml"},
+		{"Hello.\n", ""},
+		// A thematic break at the top of a file is not front matter, and this
+		// says so only because there is no second one to close it.
+		{"---\n\nHello.\n", ""},
+		// A file that opens with the JSON object unterminated is neither.
+		{"<!--{\n  \"Title\": \"Documentation\"\n\nHello.\n", ""},
+	} {
+		if got := FrontMatterForm(tt.in); got != tt.want {
+			t.Errorf("FrontMatterForm(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

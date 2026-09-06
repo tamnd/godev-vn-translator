@@ -809,3 +809,37 @@ func TestNotice(t *testing.T) {
 		t.Errorf("a page with no notice must be silent, got %d: %v", len(got), got)
 	}
 }
+
+// The bracket the front matter is written in, which twelve pages changed and
+// which L09 cannot see because the keys survive the change.
+func TestFrontMatterForm(t *testing.T) {
+	json := "<!--{\n  \"Template\": true,\n  \"Title\": \"Go Modules Reference\"\n}-->\n\nHello.\n"
+	got := count(t, ruleFrontMatterForm, json,
+		"---\nTemplate: true\nTitle: Tham chiếu về Go Modules\n---\n\nXin chào.\n", 1)
+	for _, want := range []string{"YAML between --- fences", "a JSON object in an HTML comment"} {
+		if !strings.Contains(got[0].Msg, want) {
+			t.Errorf("message %q does not mention %q", got[0].Msg, want)
+		}
+	}
+
+	// The English's own bracket, which is what refront leaves behind.
+	count(t, ruleFrontMatterForm, json,
+		"<!--{\n  \"Template\": true,\n  \"Title\": \"Tham chiếu về Go Modules\"\n}-->\n\nXin chào.\n", 0)
+
+	// The four pages that kept the object and put fences round the outside.
+	// yaml.Unmarshal is handed `<!--{` and the page does not render.
+	count(t, ruleFrontMatterForm, json,
+		"---\n<!--{\n  \"Title\": \"Tài liệu\"\n}-->\n---\n\nXin chào.\n", 1)
+
+	// The 603 pages written in YAML on both sides.
+	yaml := "---\ntitle: Go 1.24 Release Notes\n---\n\nHello.\n"
+	count(t, ruleFrontMatterForm, yaml, "---\ntitle: Ghi chú phát hành Go 1.24\n---\n\nXin chào.\n", 0)
+
+	// A chunk cut out of the middle of a file has no front matter on either
+	// side, and a chunk that opens on a thematic break has something the fence
+	// pattern will read as front matter on whichever side has a second one.
+	// Neither is this rule's business, and requiring a json on one side is what
+	// keeps it out of both.
+	count(t, ruleFrontMatterForm, "---\n\nHello.\n\n---\n\nEnd.\n", "Xin chào.\n", 0)
+	count(t, ruleFrontMatterForm, "Hello.\n", "Xin chào.\n", 0)
+}

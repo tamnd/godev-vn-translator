@@ -700,6 +700,7 @@ var entityRE = regexp.MustCompile(`&#(x[0-9a-fA-F]+|[0-9]+);`)
 // the eight answers on disk that is exactly what happened: thirty self linked
 // targets that the first ordering did not see.
 func unmangle(text, english string) string {
+	text = refront(text, english)
 	proof := proofOf(english)
 	head := content.BodyStart(text)
 	text = unescape(text[:head], proof, true) + unescape(text[head:], proof, false)
@@ -726,6 +727,96 @@ func unmangle(text, english string) string {
 		return string(r)
 	})
 	return reindent(text, english)
+}
+
+// jsonPairRE is one `"Key": value` line of the JSON front matter form. Every
+// one of the 77 files writes one key per line and no value is an object or an
+// array, so a line is the whole of a pair and there is nothing to nest.
+var jsonPairRE = regexp.MustCompile(`^(\s*"([^"]+)"\s*:\s*)(.*?)(,?)\s*$`)
+
+// refront puts the front matter back in the bracket the English wrote it in.
+//
+// The site reads two forms and they are not the same page. parseMeta in
+// internal/web lowercases every key of the JSON form and leaves the keys of the
+// YAML form as written, and everything downstream looks the key up in lower
+// case. So `<!--{ "Template": true }-->` turned into `---` / `Template: true` /
+// `---` is a page that has quietly stopped being a template, and a title
+// written as `Title:` is a title nothing reads.
+//
+// Twelve pages came back in the wrong bracket and they came back in two shapes.
+// Eight were converted, keys and all. The other four kept the English's object
+// intact and wrapped a pair of `---` fences around the outside of it, which
+// hands `<!--{` to yaml.Unmarshal, and a page whose metadata will not parse
+// does not render.
+//
+// Both are repaired the same way, because the repair is not a conversion. The
+// English block is the skeleton, down to its tabs and its trailing commas, and
+// the only thing taken from the answer is the value of each key. That is the
+// same principle the rest of unmangle runs on: the English is what the page is
+// supposed to look like and the answer is only allowed to change the prose.
+//
+// It gives up rather than guessing. A key the answer does not have, a key the
+// answer added, a value with a newline in it: any of those and the text comes
+// back untouched for L20 to refuse, because a front matter block assembled out
+// of a partial match is worse than one that is visibly wrong.
+func refront(text, english string) string {
+	if content.FrontMatterForm(english) != "json" || content.FrontMatterForm(text) != "yaml" {
+		return text
+	}
+	block := english[:content.BodyStart(english)]
+	head := content.BodyStart(text)
+	src := strings.TrimSuffix(strings.TrimPrefix(text[:head], "---\n"), "---\n")
+	quote := content.FrontMatterForm(src) != "json"
+	lines := strings.Split(block, "\n")
+	pairs := 0
+	for i, line := range lines {
+		g := jsonPairRE.FindStringSubmatch(line)
+		if g == nil {
+			continue
+		}
+		pairs++
+		v, ok := content.FrontMatterValue(src, g[2])
+		if !ok {
+			return text
+		}
+		if quote {
+			if v, ok = jsonValue(v); !ok {
+				return text
+			}
+		}
+		lines[i] = g[1] + v + g[4]
+	}
+	// The count is the check for a key the answer added, which the loop above
+	// cannot see because it only ever asks about keys the English has.
+	if pairs != len(content.FrontMatterKeys(src)) {
+		return text
+	}
+	return strings.Join(lines, "\n") + text[head:]
+}
+
+// jsonValue encodes a bare YAML scalar as the JSON the English form wants.
+//
+// The two kinds of value in these 77 files are a bool and a title, so a word
+// that is already a literal is left alone and everything else is a string. A
+// value carrying a newline or a control character is refused rather than
+// escaped, because at that point the answer is not a scalar and this is not the
+// code to be deciding what it is.
+func jsonValue(v string) (string, bool) {
+	if v == "true" || v == "false" {
+		return v, true
+	}
+	if _, err := strconv.Atoi(v); err == nil {
+		return v, true
+	}
+	if len(v) >= 2 && (v[0] == '"' && v[len(v)-1] == '"' || v[0] == '\'' && v[len(v)-1] == '\'') {
+		v = v[1 : len(v)-1]
+	}
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			return "", false
+		}
+	}
+	return strconv.Quote(v), true
 }
 
 // unautolink takes the link back off a bare url.
