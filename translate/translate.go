@@ -700,9 +700,9 @@ var entityRE = regexp.MustCompile(`&#(x[0-9a-fA-F]+|[0-9]+);`)
 // the eight answers on disk that is exactly what happened: thirty self linked
 // targets that the first ordering did not see.
 func unmangle(text, english string) string {
-	prose := blankCode(english)
+	proof := proofOf(english)
 	head := content.BodyStart(text)
-	text = unescape(text[:head], prose, true) + unescape(text[head:], prose, false)
+	text = unescape(text[:head], proof, true) + unescape(text[head:], proof, false)
 	text = selfLinkRE.ReplaceAllStringFunc(text, func(m string) string {
 		g := selfLinkRE.FindStringSubmatch(m)
 		if g[1] != g[2] {
@@ -943,21 +943,25 @@ func entityRune(entity string) (rune, bool) {
 }
 
 // unescape takes off the backslashes the converter added, with english as the
-// proof of which ones those are. That english has already had its code regions
-// blanked by blankCode, and the answer's own code regions are skipped here, so
-// the whole of this reads and writes prose only.
+// proof of which ones those are. The proof is positional: a backslash in the
+// answer's prose is judged against the English's prose, and one inside a code
+// region against the English's code regions.
 //
-// A backslash inside a fenced block or an inline code span is a character and
-// not an escape, so neither side of the test means anything there. Measured over
-// _content, 13 English files escape a mark nowhere but inside code, and one of
-// them is `ref/mod.md`, which writes `%USERPROFILE%\_netrc` in a code span and
-// on that evidence alone kept every `\_` the converter added to the other 3800
-// lines of it. That chunk went dead after three attempts and held the page stale.
-// Measured over the 684 stored answers, 18 escapes sit inside a code region and
-// every one is a literal: `C:\> cd %HOMEPATH%` in a Windows shell block, `/^\)/`
-// in a template action, and the Go spec's own `(`\`, U+005C)`. None is damage, so
-// skipping them costs nothing and taking them off would have been corruption
-// that no gate looks for.
+// The whole file used to be the proof, and one occurrence anywhere exempted a
+// mark everywhere. `ref/mod.md` writes `%USERPROFILE%\_netrc` in a code span at
+// the bottom of 3800 lines, and on that alone it kept every `\_` the converter
+// added to the rest of the page, including the one in
+// `](https://en.wikipedia.org/wiki/Basic\_access\_authentication)`. L07 refused
+// that as a wrapped target three times and the piece died. Counted over
+// _content, 13 English files escape a mark nowhere but inside code.
+//
+// Splitting the proof rather than skipping code outright is what keeps the two
+// real cases apart, and both are in the corpus. `C:\> cd %HOMEPATH%` in a
+// Windows shell block is a literal backslash and the English's own fence writes
+// it, so it stays. `for \_, x := range s` inside a fence in blog/gofix.md is
+// damage and the English's fences write no `\_` anywhere, so it comes off. A
+// rule that trusted every code region would have left the second on the page,
+// and a rule that trusted none would have taken the first off.
 //
 // frontMatter says the text is the block at the top of the file, where two
 // escapes are the format's own and stay whatever the English does. `summary:
@@ -970,21 +974,54 @@ func entityRune(entity string) (rune, bool) {
 // Only `\"` and `\\`, not every escape. Both YAML and the JSON form under doc/
 // break without them, and neither format defines `\:`, so `//go\:fix inline`
 // in a title is damage in the front matter exactly as it is in the body.
-func unescape(text, english string, frontMatter bool) string {
+//
+// An escape and the thing it escapes have to be in the same region, which is
+// what the code[i] == code[i+1] test says. The Go spec writes `(`\`, U+005C)`,
+// where the entire content of a code span is one backslash and the byte after
+// it is the closing delimiter. Nothing is being escaped there, so the pair test
+// would be asking about two different places and the backslash stays.
+func unescape(text string, proof evidence, frontMatter bool) string {
 	code := codeMask(text)
 	var b strings.Builder
 	// Byte at a time rather than rune at a time, which is safe because a
 	// backslash is ASCII and cannot appear inside a multi byte sequence, and
 	// which is what lets the mask be indexed directly.
 	for i := 0; i < len(text); i++ {
-		if text[i] == '\\' && i+1 < len(text) && !code[i] &&
-			addedInTransit(rune(text[i+1]), english) &&
+		if text[i] == '\\' && i+1 < len(text) && code[i] == code[i+1] &&
+			addedInTransit(rune(text[i+1]), proof.like(code[i])) &&
 			!(frontMatter && (text[i+1] == '"' || text[i+1] == '\\')) {
 			continue
 		}
 		b.WriteByte(text[i])
 	}
 	return b.String()
+}
+
+// evidence is the English split into the two kinds of place a backslash can
+// stand, so that each half is only ever asked about its own kind.
+type evidence struct {
+	prose string // the English with its code regions blanked
+	code  string // the English with everything but its code regions blanked
+}
+
+func proofOf(english string) evidence {
+	mask := codeMask(english)
+	prose, code := []byte(english), []byte(english)
+	for i, inCode := range mask {
+		if inCode {
+			prose[i] = ' '
+		} else {
+			code[i] = ' '
+		}
+	}
+	return evidence{prose: string(prose), code: string(code)}
+}
+
+func (e evidence) like(inCode bool) string {
+	if inCode {
+		return e.code
+	}
+	return e.prose
 }
 
 // codeMask marks the bytes of text that are inside a fenced block or an inline
@@ -1067,19 +1104,6 @@ func codeSpans(line string) [][2]int {
 		}
 	}
 	return out
-}
-
-// blankCode replaces every code region with spaces, keeping the length, so a
-// Contains test over the result only ever sees prose.
-func blankCode(text string) string {
-	mask := codeMask(text)
-	b := []byte(text)
-	for i, inCode := range mask {
-		if inCode {
-			b[i] = ' '
-		}
-	}
-	return string(b)
 }
 
 // addedInTransit says whether a backslash in front of this character can only
