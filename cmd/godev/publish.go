@@ -75,6 +75,9 @@ func runPublish(ctx context.Context, root string, args []string) error {
 	for _, s := range res.Skipped {
 		fmt.Fprintf(os.Stderr, "did not export %s\n", s)
 	}
+	if n := len(res.Shadowed); n > 0 {
+		fmt.Fprintf(os.Stderr, "dropped %d redirect stubs that a host would serve instead of a page\n", n)
+	}
 	fmt.Printf("%d pages, %d assets, %d redirects, %.1f MB in %s\n",
 		res.Pages, res.Assets, res.Redirects, float64(res.Bytes)/(1<<20), res.Out)
 	return nil
