@@ -657,6 +657,17 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 			"chuỗi thoát gồm dấu gạch chéo ngược (`\\`, U+005C) theo sau bởi một ký tự",
 		},
 		{
+			// The other side of the fence, and the case that made the proof
+			// positional rather than a blanket skip. blog/gofix.md came back
+			// with `for \_, x := range s` inside a fence and L06 refused it.
+			// A fence is not a licence to keep an escape: the English's own
+			// fences are the evidence and they write no `\_`.
+			"an escape added inside a fenced block still comes off",
+			"Note:\n\n```\nBefore Go 1.22, write `for _, x := range s`.\n```\n",
+			"Ghi chú:\n\n```\nTrước Go 1.22, viết `for \\_, x := range s`.\n```\n",
+			"Ghi chú:\n\n```\nTrước Go 1.22, viết `for _, x := range s`.\n```\n",
+		},
+		{
 			// A fenced block is code all the way through. `C:\> cd %HOMEPATH%`
 			// is a Windows prompt and it is in eight of the stored answers.
 			"a backslash inside a fenced block is kept",
@@ -1314,18 +1325,27 @@ func TestCodeSpans(t *testing.T) {
 	}
 }
 
-// TestBlankCodeLeavesProseAlone is the other half: the English proof only ever
-// sees prose, and it sees all of it.
-func TestBlankCodeLeavesProseAlone(t *testing.T) {
+// TestProofOfSplitsTheEnglish is the other half: each place a backslash can
+// stand is only ever asked about its own kind of evidence.
+func TestProofOfSplitsTheEnglish(t *testing.T) {
 	in := "See `a\\_b` and c\\_d.\n\n```\ne\\_f\n```\n\nEnd."
-	got := blankCode(in)
-	if strings.Contains(got, "c") && !strings.Contains(got, `c\_d`) {
-		t.Errorf("blankCode took the prose escape out: %q", got)
+	got := proofOf(in)
+
+	if !strings.Contains(got.prose, `c\_d`) {
+		t.Errorf("the prose half lost the prose escape: %q", got.prose)
 	}
-	if strings.Contains(got, `a\_b`) || strings.Contains(got, `e\_f`) {
-		t.Errorf("blankCode left a code escape in: %q", got)
+	if strings.Contains(got.prose, `a\_b`) || strings.Contains(got.prose, `e\_f`) {
+		t.Errorf("the prose half kept a code escape: %q", got.prose)
 	}
-	if len(got) != len(in) {
-		t.Errorf("blankCode changed the length, %d against %d", len(got), len(in))
+	if !strings.Contains(got.code, `a\_b`) || !strings.Contains(got.code, `e\_f`) {
+		t.Errorf("the code half lost a code escape: %q", got.code)
+	}
+	if strings.Contains(got.code, `c\_d`) {
+		t.Errorf("the code half kept the prose escape: %q", got.code)
+	}
+	for _, half := range []string{got.prose, got.code} {
+		if len(half) != len(in) {
+			t.Errorf("a half changed the length, %d against %d", len(half), len(in))
+		}
 	}
 }
