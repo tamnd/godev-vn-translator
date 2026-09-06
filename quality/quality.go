@@ -136,13 +136,14 @@ func Rules() []Rule {
 		ruleKeptTerms,
 		ruleTransport,
 		ruleNotice,
+		ruleSelfLinks,
 	}
 }
 
 // ChunkRules are the gates that mean the same thing on a piece of a file as
 // they do on the whole of it.
 //
-// Sixteen of the eighteen do. They compare a sequence pulled out of the English
+// Seventeen of the nineteen do. They compare a sequence pulled out of the English
 // with the same sequence pulled out of the Vietnamese, and a piece of a file
 // has those sequences too. Running them on the piece rather than waiting for
 // the finished file is what makes a refusal actionable: the run knows which
