@@ -246,10 +246,37 @@ func TestWriteRedirects(t *testing.T) {
 	}
 }
 
-// TestWriteRedirectsHosts is the domain move, seen from the redirect table. The
-// host rules have to come out above the path rules, because Pages takes the
-// first line that matches and a bare /tour/lesson/ would otherwise answer for a
-// request to a host that is only meant to redirect.
+// A redirect with a stub file behind it is answered by that file on both hosts.
+// A rule for it would spend one of a hundred slots to turn a meta refresh into
+// a 301 on one host, and the slots are needed by the redirects that have no
+// file at all.
+func TestWriteRedirectsSkipsTheOnesWithAStub(t *testing.T) {
+	c, done := crawlFixture(t)
+	defer done()
+	for _, p := range []string{"/doc/effective_go", "/doc/effective_go.html", "/design/go2draft"} {
+		if err := c.fetch(context.Background(), p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.unshadow(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.writeRedirects(); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, c.out, "_redirects")
+	if !strings.Contains(got, "/doc/effective_go.html /doc/effective_go 301") {
+		t.Errorf("the dropped stub has no rule either, so the old path leads nowhere:\n%s", got)
+	}
+	if strings.Contains(got, "/design/go2draft") {
+		t.Errorf("a redirect with a stub file behind it took a rule as well:\n%s", got)
+	}
+}
+
+// The host sections were rules once and the rules never fired, because Pages
+// matches the source against the path and not the URL. What is left is a
+// comment, and the point of the comment is that the next person to wonder finds
+// the answer in the file they are looking at.
 func TestWriteRedirectsHosts(t *testing.T) {
 	c, done := crawlFixture(t)
 	defer done()
@@ -259,19 +286,19 @@ func TestWriteRedirectsHosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := read(t, c.out, "_redirects")
-	wait := "https://godev.vn/* /placeholder.html 200"
-	send := "https://godev-vn.pages.dev/* https://godev-vn.tamnd.com/:splat 301"
-	for _, want := range []string{wait, send} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("_redirects has no line %q:\n%s", want, got)
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "https://") {
+			t.Errorf("a rule matches on the host and will never fire: %q", line)
 		}
 	}
-	if strings.Index(got, send) > strings.Index(got, "/tour/lesson/") {
-		t.Error("a host rule is below a path rule, so the path rule answers first")
+	for _, want := range []string{"godev.vn", "godev-vn.pages.dev"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("_redirects does not say what happens to %s:\n%s", want, got)
+		}
 	}
 }
 
-// A checkout that names one address writes no host rules at all, which is the
+// A checkout that names one address says nothing about any other, which is the
 // state a site with one address should be in.
 func TestWriteRedirectsOneHost(t *testing.T) {
 	c, done := crawlFixture(t)
@@ -279,16 +306,15 @@ func TestWriteRedirectsOneHost(t *testing.T) {
 	if err := c.writeRedirects(); err != nil {
 		t.Fatal(err)
 	}
-	if got := read(t, c.out, "_redirects"); strings.Contains(got, "https://godev-vn.tamnd.com") {
-		t.Errorf("_redirects sends the only host to itself:\n%s", got)
+	if got := read(t, c.out, "_redirects"); strings.Contains(got, "godev-vn.tamnd.com") {
+		t.Errorf("_redirects talks about the only host there is:\n%s", got)
 	}
 }
 
 func TestCheckRules(t *testing.T) {
-	// A comment is not a rule, a host rule is dynamic because of the splat, and
-	// a plain path pair is static.
+	// A comment is not a rule, a splat makes a rule dynamic, and a plain path
+	// pair is one rule like any other.
 	ok := "# Written by godev publish. Do not edit.\n\n" +
-		"https://godev.vn/* /placeholder.html 200\n" +
 		"/pkg/* https://go.dev/pkg/:splat 302\n" +
 		"/doc/articles/image_draw.html /blog/image-draw 301\n"
 	if err := checkRules(ok); err != nil {
@@ -296,19 +322,11 @@ func TestCheckRules(t *testing.T) {
 	}
 
 	var b strings.Builder
-	for i := 0; i < maxDynamic+1; i++ {
-		fmt.Fprintf(&b, "/a%d/* https://go.dev/a%d/:splat 302\n", i, i)
-	}
-	if err := checkRules(b.String()); err == nil {
-		t.Error("a table over the dynamic cap was accepted")
-	}
-
-	b.Reset()
-	for i := 0; i < maxStatic+1; i++ {
+	for i := 0; i < maxRules+1; i++ {
 		fmt.Fprintf(&b, "/a%d /b%d 301\n", i, i)
 	}
 	if err := checkRules(b.String()); err == nil {
-		t.Error("a table over the static cap was accepted")
+		t.Error("a table past the hundred rules Pages honours was accepted")
 	}
 
 	long := "/" + strings.Repeat("a", maxRule) + " /b 301\n"

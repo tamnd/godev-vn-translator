@@ -344,6 +344,9 @@ func (c *crawl) unshadow() error {
 		if err := os.Remove(filepath.Join(c.out, filepath.FromSlash(file))); err != nil {
 			return err
 		}
+		// Out of the set as well as off the disk, because writeRedirects asks
+		// this set which redirects still have a file answering for them.
+		delete(c.stubs, file)
 		c.opts.Log("dropped %s, which a host would serve instead of %s", file, page)
 		c.shadowed = append(c.shadowed, file)
 	}
@@ -666,29 +669,36 @@ func start(ctx context.Context, opts Options) (string, func(), error) {
 
 // writeRedirects writes the table Cloudflare Pages reads.
 //
-// Three kinds of line go in it. The prefixes go.dev serves from another service
-// go back to go.dev, because nothing here can answer them. The tour's lesson
-// endpoint is rewritten to the file the export wrote it to. And every redirect
-// the site itself issued is repeated, so that Pages answers those with a status
-// rather than with the meta refresh stub that is there for GitHub Pages.
+// Two kinds of line go in it. The prefixes go.dev serves from another service go
+// back to go.dev, because nothing here can answer them. The tour's lesson
+// endpoint is rewritten to the file the export wrote it to. A redirect the site
+// itself issued goes in only when there is no stub file behind it, which is the
+// budget in maxRules being spent where it buys something: a path with a stub
+// already answers on both hosts, and a path whose stub was dropped by unshadow
+// has nothing at all.
+//
+// Nothing about a hostname goes in it. Pages matches the source against the
+// path and not the URL, so a rule beginning https:// never fires. That was
+// measured, not read: a rule for this project's own name did nothing on a
+// deploy, and Cloudflare's own table of what the source field supports has
+// domain-level redirects marked as unsupported. The hosts that need one are
+// named in a comment and want a redirect rule on the zone instead.
 func (c *crawl) writeRedirects() error {
 	var b strings.Builder
 	b.WriteString("# Written by godev publish. Do not edit.\n")
-	// The host rules go first. Pages takes the first line that matches, and a
-	// path rule below would otherwise answer for a request to a host that is
-	// only meant to redirect: somebody typing godev.vn/pkg/fmt while the domain
-	// is waiting would be sent to go.dev rather than told where the site is.
-	if len(c.opts.Waiting) > 0 {
-		b.WriteString("\n# Bought, pointed here, and not the address yet. See SITE.md.\n")
-		for _, host := range c.opts.Waiting {
-			fmt.Fprintf(&b, "https://%s/* /%s 200\n", host, placeholderFile)
-		}
+	// The waiting and redirecting hosts used to be two sections of rules here
+	// and the rules never worked. They are still worth naming, because the next
+	// person to wonder why godev-vn.pages.dev serves the site rather than
+	// redirecting should find the answer in the file they are looking at.
+	for _, host := range c.opts.Waiting {
+		fmt.Fprintf(&b, "\n# %s is bought, pointed here, and not the address yet.\n", host)
+		fmt.Fprintf(&b, "# Pages cannot serve /%s for one host from this file.\n", placeholderFile)
+		b.WriteString("# That wants a redirect rule on the zone. See SITE.md.\n")
 	}
-	if len(c.opts.Redirecting) > 0 {
-		b.WriteString("\n# Other names for this deploy. The real one is in SITE.md.\n")
-		for _, host := range c.opts.Redirecting {
-			fmt.Fprintf(&b, "https://%s/* https://%s/:splat 301\n", host, c.opts.Host)
-		}
+	for _, host := range c.opts.Redirecting {
+		fmt.Fprintf(&b, "\n# %s is another name for this deploy and should send\n", host)
+		fmt.Fprintf(&b, "# readers to %s. Pages cannot do that from this file.\n", c.opts.Host)
+		b.WriteString("# The canonical link tag in every page carries it meanwhile.\n")
 	}
 	b.WriteString("\n# Served by a program on go.dev, not by a file here.\n")
 	for _, prefix := range ProxyPrefixes {
@@ -700,10 +710,22 @@ func (c *crawl) writeRedirects() error {
 	b.WriteString("\n# The tour loads every lesson from this one path.\n")
 	b.WriteString("/tour/lesson/ /tour/lessons.json 200\n")
 	b.WriteString("/tour/lesson /tour/lessons.json 200\n")
-	if len(c.redirects) > 0 {
-		b.WriteString("\n# Redirects the site issued when it was crawled.\n")
-		sort.Slice(c.redirects, func(i, j int) bool { return c.redirects[i].from < c.redirects[j].from })
-		for _, r := range c.redirects {
+	// Only the ones with nothing behind them. A redirect whose stub is on disk
+	// is answered by that file on both hosts, and a rule for it would spend a
+	// slot out of a hundred to turn a meta refresh into a 301 on one of them.
+	// There were 152 rules here and about fifty of them did nothing.
+	var bare []rule
+	for _, r := range c.redirects {
+		if !c.stubs[pagePath(r.from)] {
+			bare = append(bare, r)
+		}
+	}
+	if len(bare) > 0 {
+		b.WriteString("\n# Redirects with no file behind them, because unshadow\n")
+		b.WriteString("# dropped the stub. Everything else the site redirects is\n")
+		b.WriteString("# a stub file, which both hosts serve without a rule.\n")
+		sort.Slice(bare, func(i, j int) bool { return bare[i].from < bare[j].from })
+		for _, r := range bare {
 			fmt.Fprintf(&b, "%s %s %d\n", r.from, r.to, r.status)
 		}
 	}
@@ -714,28 +736,45 @@ func (c *crawl) writeRedirects() error {
 	return c.write("_redirects", []byte(table))
 }
 
-// Cloudflare Pages caps the redirect table. From its documentation: "A
-// _redirects file is limited to 2,000 static redirects and 100 dynamic
-// redirects, for a combined total of 2,100 redirects", and "Each redirect
-// declaration has a 1,000-character limit."
+// Cloudflare Pages caps the redirect table, and the cap is not the documented
+// one.
 //
-// A rule is dynamic when its source has a splat or a placeholder in it.
+// The documentation says "A _redirects file is limited to 2,000 static
+// redirects and 100 dynamic redirects, for a combined total of 2,100
+// redirects", and "Each redirect declaration has a 1,000-character limit". The
+// first sentence did not hold on a real deploy. The table this exporter wrote
+// had 152 rules in it and the site answered on the first hundred or so and
+// ignored the rest, silently, with no error anywhere.
+//
+// It was measured on a throwaway Pages project rather than argued about. A file
+// of 300 static rules and nothing else: every one of them worked. The same file
+// with 15 dynamic rules in front: the 15 worked, then 85 static ones, then
+// nothing. Five dynamic and 200 static: five, then 95, then nothing. The real
+// table stopped one line later than that, which is the two tour rewrites not
+// counting or an off by one in the accounting, and either way the number to
+// build against is a hundred rules and not 2,100.
+//
+// So maxRules is 100, it is the whole table and not one kind of rule, and it is
+// the reason writeRedirects leaves out every redirect that has a stub file
+// behind it. maxRule stays as documented; nothing here comes near it.
+//
+// There is no separate check on the dynamic rules any more. Their documented
+// budget is a hundred, the whole table is now capped at a hundred, and a second
+// check that can never fire before the first one is a check that reads like it
+// is doing something.
 const (
-	maxStatic  = 2000
-	maxDynamic = 100
-	maxRule    = 1000
+	maxRules = 100
+	maxRule  = 1000
 )
 
 // checkRules refuses a table Pages would not take whole.
 //
-// The documentation gives the caps and does not say what happens past them,
-// which is the reason to check here rather than find out. The two ways to go
-// over are both plausible from the site: one more proxy prefix is two more
-// dynamic rules against a budget of a hundred, and a run of renames in the
-// content is one more static rule each against two thousand. Neither would be
-// noticed by anybody reading the diff of a generated file.
+// Going over is plausible from the content alone: a run of renames is one more
+// rule each, and nobody reads the diff of a generated file. Past the cap the
+// failure is a redirect that quietly does nothing, which is the failure this
+// export already shipped once.
 func checkRules(table string) error {
-	var static, dynamic int
+	rules := 0
 	for _, line := range strings.Split(table, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -744,18 +783,10 @@ func checkRules(table string) error {
 		if len(line) > maxRule {
 			return fmt.Errorf("publish: Pages takes %d characters a redirect and this one is %d, starting %.80s", maxRule, len(line), line)
 		}
-		from, _, _ := strings.Cut(line, " ")
-		if strings.Contains(from, "*") || strings.Contains(from, "/:") {
-			dynamic++
-		} else {
-			static++
-		}
+		rules++
 	}
-	if static > maxStatic {
-		return fmt.Errorf("publish: %d static redirects and Pages takes %d", static, maxStatic)
-	}
-	if dynamic > maxDynamic {
-		return fmt.Errorf("publish: %d dynamic redirects and Pages takes %d", dynamic, maxDynamic)
+	if rules > maxRules {
+		return fmt.Errorf("publish: %d rules in _redirects and Pages honours about %d, so the ones past that would do nothing", rules, maxRules)
 	}
 	return nil
 }
