@@ -700,8 +700,9 @@ var entityRE = regexp.MustCompile(`&#(x[0-9a-fA-F]+|[0-9]+);`)
 // the eight answers on disk that is exactly what happened: thirty self linked
 // targets that the first ordering did not see.
 func unmangle(text, english string) string {
+	prose := blankCode(english)
 	head := content.BodyStart(text)
-	text = unescape(text[:head], english, true) + unescape(text[head:], english, false)
+	text = unescape(text[:head], prose, true) + unescape(text[head:], prose, false)
 	text = selfLinkRE.ReplaceAllStringFunc(text, func(m string) string {
 		g := selfLinkRE.FindStringSubmatch(m)
 		if g[1] != g[2] {
@@ -942,7 +943,21 @@ func entityRune(entity string) (rune, bool) {
 }
 
 // unescape takes off the backslashes the converter added, with english as the
-// proof of which ones those are.
+// proof of which ones those are. That english has already had its code regions
+// blanked by blankCode, and the answer's own code regions are skipped here, so
+// the whole of this reads and writes prose only.
+//
+// A backslash inside a fenced block or an inline code span is a character and
+// not an escape, so neither side of the test means anything there. Measured over
+// _content, 13 English files escape a mark nowhere but inside code, and one of
+// them is `ref/mod.md`, which writes `%USERPROFILE%\_netrc` in a code span and
+// on that evidence alone kept every `\_` the converter added to the other 3800
+// lines of it. That chunk went dead after three attempts and held the page stale.
+// Measured over the 684 stored answers, 18 escapes sit inside a code region and
+// every one is a literal: `C:\> cd %HOMEPATH%` in a Windows shell block, `/^\)/`
+// in a template action, and the Go spec's own `(`\`, U+005C)`. None is damage, so
+// skipping them costs nothing and taking them off would have been corruption
+// that no gate looks for.
 //
 // frontMatter says the text is the block at the top of the file, where two
 // escapes are the format's own and stay whatever the English does. `summary:
@@ -956,16 +971,115 @@ func entityRune(entity string) (rune, bool) {
 // break without them, and neither format defines `\:`, so `//go\:fix inline`
 // in a title is damage in the front matter exactly as it is in the body.
 func unescape(text, english string, frontMatter bool) string {
+	code := codeMask(text)
 	var b strings.Builder
-	runes := []rune(text)
-	for i := 0; i < len(runes); i++ {
-		if runes[i] == '\\' && i+1 < len(runes) && addedInTransit(runes[i+1], english) &&
-			!(frontMatter && (runes[i+1] == '"' || runes[i+1] == '\\')) {
+	// Byte at a time rather than rune at a time, which is safe because a
+	// backslash is ASCII and cannot appear inside a multi byte sequence, and
+	// which is what lets the mask be indexed directly.
+	for i := 0; i < len(text); i++ {
+		if text[i] == '\\' && i+1 < len(text) && !code[i] &&
+			addedInTransit(rune(text[i+1]), english) &&
+			!(frontMatter && (text[i+1] == '"' || text[i+1] == '\\')) {
 			continue
 		}
-		b.WriteRune(runes[i])
+		b.WriteByte(text[i])
 	}
 	return b.String()
+}
+
+// codeMask marks the bytes of text that are inside a fenced block or an inline
+// code span. The fence marker lines are in it too, since their info string is
+// not prose either.
+func codeMask(text string) []bool {
+	mask := make([]bool, len(text))
+	lines := strings.Split(text, "\n")
+	start := make([]int, len(lines))
+	at := 0
+	for i, line := range lines {
+		start[i] = at
+		at += len(line) + 1
+	}
+	fence := make([]bool, len(lines))
+	for _, block := range fenced(lines) {
+		for i := block[0] - 1; i <= block[1]; i++ {
+			if i >= 0 && i < len(lines) {
+				fence[i] = true
+			}
+		}
+	}
+	for i, line := range lines {
+		if fence[i] {
+			for j := 0; j < len(line); j++ {
+				mask[start[i]+j] = true
+			}
+			continue
+		}
+		for _, span := range codeSpans(line) {
+			for j := span[0]; j < span[1]; j++ {
+				mask[start[i]+j] = true
+			}
+		}
+	}
+	return mask
+}
+
+// codeSpans returns the byte ranges of the contents of the inline code spans in
+// one line, delimiters excluded.
+//
+// A run of n backticks is closed by the next run of n, and a run that is never
+// closed is not a span at all and is passed over. A closing run longer than the
+// opening one is treated as a close here where CommonMark would not, which makes
+// a span slightly too long now and then. That direction is the safe one: a byte
+// wrongly called code keeps a backslash that might have been damage, and a byte
+// wrongly called prose loses one that was not.
+//
+// The delimiters are left out because the converter escapes them. `Chạy
+// \`go install\` trước` is the commonest single defect this file undoes, 170 of
+// them on the sample that started it, and the escape before the closing backtick
+// would be the last byte of the span if the span included its delimiters. So a
+// run preceded by a backslash is read as an escaped delimiter, and the backslash
+// in front of its partner is left out of the span too. That keeps the two apart
+// from the one real shape they resemble, the Go spec's own `(`\`, U+005C)`, where
+// the whole content of the span is a backslash and neither delimiter is escaped.
+func codeSpans(line string) [][2]int {
+	var out [][2]int
+	for i := 0; i < len(line); {
+		if line[i] != '`' {
+			i++
+			continue
+		}
+		n := 1
+		for i+n < len(line) && line[i+n] == '`' {
+			n++
+		}
+		end := strings.Index(line[i+n:], strings.Repeat("`", n))
+		if end < 0 {
+			i += n
+			continue
+		}
+		open, shut := i+n, i+n+end
+		i = shut + n
+		if open > n && line[open-n-1] == '\\' && shut > open && line[shut-1] == '\\' {
+			shut--
+		}
+		if open < shut {
+			out = append(out, [2]int{open, shut})
+		}
+	}
+	return out
+}
+
+// blankCode replaces every code region with spaces, keeping the length, so a
+// Contains test over the result only ever sees prose.
+func blankCode(text string) string {
+	mask := codeMask(text)
+	b := []byte(text)
+	for i, inCode := range mask {
+		if inCode {
+			b[i] = ' '
+		}
+	}
+	return string(b)
 }
 
 // addedInTransit says whether a backslash in front of this character can only

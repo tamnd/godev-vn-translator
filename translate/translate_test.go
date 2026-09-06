@@ -636,6 +636,35 @@ func TestUnmangleUndoesTheTransport(t *testing.T) {
 			"Đây là **quan trọng**.",
 		},
 		{
+			// The shape that held ref/mod.md stale for a run. The English writes
+			// `\_` once, in a Windows path inside a code span, and that one
+			// occurrence used to exempt the mark for the whole 3800 line file. A
+			// backslash inside code is a character and not an escape, so it is no
+			// evidence about what the English escapes in prose.
+			"a mark the English escapes only inside a code span",
+			"Set `%USERPROFILE%\\_netrc` or see [Basic access](https://en.wikipedia.org/wiki/Basic_access_authentication).",
+			"Đặt `%USERPROFILE%\\_netrc` hoặc xem [Basic access](https://en.wikipedia.org/wiki/Basic\\_access\\_authentication).",
+			"Đặt `%USERPROFILE%\\_netrc` hoặc xem [Basic access](https://en.wikipedia.org/wiki/Basic_access_authentication).",
+		},
+		{
+			// The other side of the same rule. The answer's own code spans are
+			// skipped, so a literal backslash the page is about survives even
+			// when the English gives no cover for it anywhere. This line is the
+			// Go spec on string literals and it is in the corpus.
+			"a literal backslash inside a code span is kept",
+			"escape sequences of a backslash (`\\`, U+005C) followed by a character",
+			"chuỗi thoát gồm dấu gạch chéo ngược (`\\`, U+005C) theo sau bởi một ký tự",
+			"chuỗi thoát gồm dấu gạch chéo ngược (`\\`, U+005C) theo sau bởi một ký tự",
+		},
+		{
+			// A fenced block is code all the way through. `C:\> cd %HOMEPATH%`
+			// is a Windows prompt and it is in eight of the stored answers.
+			"a backslash inside a fenced block is kept",
+			"Run it:\n\n```\nC:\\> cd %HOMEPATH%\n```\n\nThen **go**.",
+			"Chạy nó:\n\n```\nC:\\> cd %HOMEPATH%\n```\n\nRồi \\*\\*go\\*\\*.",
+			"Chạy nó:\n\n```\nC:\\> cd %HOMEPATH%\n```\n\nRồi **go**.",
+		},
+		{
 			// The English is the ground truth. blog/declaration-syntax.md is a
 			// post about syntax and escapes what it quotes, and an answer that
 			// escapes the same thing is right.
@@ -1236,5 +1265,67 @@ func TestARebuildWithEnglishInItStillShipsWhenThereIsNothingToLose(t *testing.T)
 	}
 	if len(assembly.Kept) != 0 {
 		t.Fatalf("Kept is %v, want it empty", assembly.Kept)
+	}
+}
+
+// TestCodeSpans pins the one judgement in the mask: which backticks are a real
+// delimiter and which are a delimiter the converter escaped.
+func TestCodeSpans(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		line string
+		want []string
+	}{
+		{"a plain span", "Run `go install` first.", []string{"go install"}},
+		{"two spans", "`a` and `b`", []string{"a", "b"}},
+		{"an unclosed run is not a span", "a ` b", nil},
+		{"a double run", "``a `b` c`` d", []string{"a `b` c"}},
+		{
+			// Both delimiters escaped, so the escape in front of the closing
+			// backtick belongs to the delimiter and not to the content. Without
+			// this the trailing backslash would be inside the span, be read as a
+			// literal, and stay on the page.
+			"escaped delimiters",
+			"Chạy \\`go install\\` trước.",
+			[]string{"go install"},
+		},
+		{
+			// The content is a backslash and neither delimiter is escaped, so
+			// nothing here is damage.
+			"a backslash is the whole content",
+			"a backslash (`\\`, U+005C) followed by",
+			[]string{"\\"},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var got []string
+			for _, span := range codeSpans(c.line) {
+				got = append(got, c.line[span[0]:span[1]])
+			}
+			if len(got) != len(c.want) {
+				t.Fatalf("codeSpans(%q) = %q, want %q", c.line, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("span %d is %q, want %q", i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestBlankCodeLeavesProseAlone is the other half: the English proof only ever
+// sees prose, and it sees all of it.
+func TestBlankCodeLeavesProseAlone(t *testing.T) {
+	in := "See `a\\_b` and c\\_d.\n\n```\ne\\_f\n```\n\nEnd."
+	got := blankCode(in)
+	if strings.Contains(got, "c") && !strings.Contains(got, `c\_d`) {
+		t.Errorf("blankCode took the prose escape out: %q", got)
+	}
+	if strings.Contains(got, `a\_b`) || strings.Contains(got, `e\_f`) {
+		t.Errorf("blankCode left a code escape in: %q", got)
+	}
+	if len(got) != len(in) {
+		t.Errorf("blankCode changed the length, %d against %d", len(got), len(in))
 	}
 }
