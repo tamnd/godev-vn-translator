@@ -11,7 +11,12 @@ import (
 func root(t *testing.T) Root {
 	t.Helper()
 	dir := t.TempDir()
-	for _, rel := range []string{"doc/faq.md", "doc/devel/weekly.html", "js/site.js"} {
+	for _, rel := range []string{
+		"doc/faq.md",
+		"doc/devel/weekly.html",
+		"js/site.js",
+		"talks/2013/highperf/mart/1/app.yaml",
+	} {
 		p := filepath.Join(dir, EnglishDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -56,6 +61,7 @@ func TestFindRefusesASkippedPage(t *testing.T) {
 		"_content/doc/devel/weekly.html",
 		"./doc/devel/weekly.html",
 		"js/site.js",
+		"talks/2013/highperf/mart/1/app.yaml",
 	} {
 		_, err := r.Find(rel)
 		if !errors.Is(err, ErrSkipped) {
