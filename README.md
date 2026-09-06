@@ -159,7 +159,10 @@ The checkout defaults to `$GODEV_VN`, then to `../godev-vn` beside this repo. Ex
 ./godev translate -group ref -workers 4   # one section of the site
 ./godev translate -gap                    # the files with no translation or a stale one
 ./godev translate -assemble               # write the pages that are already whole
+./godev translate -all                    # every file, current or not, 2597 pieces
 ```
+
+There is no bare `./godev translate`. It used to mean the whole corpus and it was started by accident twice, both times by somebody who meant `-gap`, so a run now has to say what it is about: a path, `-gap`, `-group` or `-all`. `-plan` and `-assemble` are exempt, because neither asks a route anything and `-plan` with no scope is how you find out what a full run would cost.
 
 A run is interruptible. The answers are on disk under `work/`, so stopping and starting again carries on rather than starting over, and a page is written only when every piece of it is back and the whole file passes the audit. `-gap` means no translation, no record of what it was made from, or a record naming an English file that has since moved.
 
