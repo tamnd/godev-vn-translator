@@ -1104,3 +1104,76 @@ func TestUnautolinkTakesTheLinkBackOffABareURL(t *testing.T) {
 		})
 	}
 }
+
+// The give up rule above is about a page with no Vietnamese yet. Once there is
+// one, the thing a rebuild is compared against is not the English page, it is
+// the translation on disk, and a rebuild with English in it is worse than what
+// is already there.
+//
+// doc/install.html is the page that showed it. One piece of it is 8743 bytes of
+// tab panels and copy paste widgets, it was refused ten times across three days
+// on two hosts, and the English it then kept is 91 percent of the file. Nothing
+// would have stopped that going over a complete translation that passes the
+// whole audit: L02 is a notice and L11 wants one tone marked letter per two
+// hundred characters, which the front matter alone clears.
+func TestARebuildWithEnglishInItDoesNotReplaceATranslation(t *testing.T) {
+	h := setup(t, map[string]string{"blog/unique.md": page},
+		func(english string, _ int) (string, error) {
+			out, _ := good(english, 0)
+			return strings.ReplaceAll(out,
+				"[gói unique](https://pkg.go.dev/unique)", "gói unique"), nil
+		})
+	h.engine.Log = func(string, ...any) {}
+
+	had, _ := good(page, 0)
+	path := filepath.Join(h.root, content.VietnameseDir, "blog", "unique.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(had), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, assembly := h.cycle()
+	if result.English != 1 {
+		t.Fatalf("%d pieces were kept in English, want 1: %+v", result.English, result)
+	}
+	if len(assembly.Written) != 0 {
+		t.Fatalf("the page was rewritten over a translation: %+v", assembly)
+	}
+	if len(assembly.Kept) != 1 || assembly.Kept[0] != "blog/unique.md" {
+		t.Fatalf("Kept is %v, want the page in it", assembly.Kept)
+	}
+	if got := h.read("blog/unique.md"); got != had {
+		t.Errorf("the translation on disk changed:\n got %q\nwant %q", got, had)
+	}
+	manifest, err := quality.LoadManifest(h.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No record, so the page stays L13 stale and the audit goes on saying it is
+	// out of date, which is the truth about it.
+	if _, ok := manifest.Get("blog/unique.md"); ok {
+		t.Error("the manifest recorded a refresh that did not happen")
+	}
+}
+
+// The same page with nothing on disk still ships, which is the case the give up
+// rule was written for and is not changed by the one above.
+func TestARebuildWithEnglishInItStillShipsWhenThereIsNothingToLose(t *testing.T) {
+	h := setup(t, map[string]string{"blog/unique.md": page},
+		func(english string, _ int) (string, error) {
+			out, _ := good(english, 0)
+			return strings.ReplaceAll(out,
+				"[gói unique](https://pkg.go.dev/unique)", "gói unique"), nil
+		})
+	h.engine.Log = func(string, ...any) {}
+
+	_, assembly := h.cycle()
+	if len(assembly.Written) != 1 {
+		t.Fatalf("the page did not ship: %+v", assembly)
+	}
+	if len(assembly.Kept) != 0 {
+		t.Fatalf("Kept is %v, want it empty", assembly.Kept)
+	}
+}
